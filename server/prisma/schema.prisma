@@ -1,0 +1,50 @@
+// schema.prisma
+
+// Database connection configuration
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Prisma Client generator configuration
+generator client {
+  provider = "prisma-client-js"
+}
+
+// User model representing an authenticated Clerk user
+model User {
+  id       String   @id @default(cuid())      // Internal user ID
+  clerkId  String   @unique                   // External Clerk ID
+  tasks    Task[]                             // One-to-many relation to Task
+
+  @@map("users") // Database table name
+}
+
+// Task model representing a task owned by a user
+model Task {
+  id        String    @id @default(cuid())     // Task ID
+  title     String                              // Task title
+  completed Boolean   @default(false)           // Completion status
+  createdAt DateTime  @default(now())           // Creation timestamp
+  updatedAt DateTime  @updatedAt                // Auto-updated timestamp
+  userId    String                              // Foreign key to User
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade) // User relation
+  subtasks  Subtask[]                           // One-to-many relation to Subtask
+
+  @@index([userId])     // Index for efficient user-based queries
+  @@map("tasks")        // Database table name
+}
+
+// Subtask model representing a subtask under a parent task
+model Subtask {
+  id        String   @id @default(cuid())     // Subtask ID
+  title     String                            // Subtask title
+  completed Boolean  @default(false)          // Completion status
+  createdAt DateTime @default(now())          // Creation timestamp
+  updatedAt DateTime @updatedAt               // Auto-updated timestamp
+  taskId    String                            // Foreign key to Task
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade) // Task relation
+
+  @@index([taskId])   // Index for efficient task-based queries
+  @@map("subtasks")   // Database table name
+}
