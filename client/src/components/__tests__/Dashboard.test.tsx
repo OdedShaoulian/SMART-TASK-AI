@@ -110,7 +110,7 @@ describe('Dashboard', () => {
     });
 
     it('should display quick action buttons', async () => {
-      const mockTasks = [];
+      const mockTasks: any[] = [];
       mockApiService.getTasks.mockResolvedValue(mockTasks);
 
       renderWithRouter(<Dashboard />);
@@ -148,7 +148,7 @@ describe('Dashboard', () => {
     });
 
     it('should display empty state when no tasks exist', async () => {
-      const mockTasks = [];
+      const mockTasks: any[] = [];
       mockApiService.getTasks.mockResolvedValue(mockTasks);
 
       renderWithRouter(<Dashboard />);
@@ -163,7 +163,7 @@ describe('Dashboard', () => {
 
   describe('Task Interactions', () => {
     it('should toggle task completion when checkbox is clicked', async () => {
-      const mockTasks = [
+      const mockTasks: any[] = [
         { id: '1', title: 'Task 1', completed: false, subtasks: [] },
       ];
       mockApiService.getTasks.mockResolvedValue(mockTasks);
@@ -221,7 +221,7 @@ describe('Dashboard', () => {
 
   describe('Navigation', () => {
     it('should have correct links for quick actions', async () => {
-      const mockTasks = [];
+      const mockTasks: any[] = [];
       mockApiService.getTasks.mockResolvedValue(mockTasks);
 
       renderWithRouter(<Dashboard />);

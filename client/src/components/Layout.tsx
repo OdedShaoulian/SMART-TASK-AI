@@ -1,6 +1,6 @@
 import { UserButton, SignedIn, SignedOut } from '@clerk/clerk-react';
 import { Link, Outlet } from 'react-router-dom';
-import { Brain, CheckSquare, Plus } from 'lucide-react';
+import { Brain } from 'lucide-react';
 
 export default function Layout() {
   return (
