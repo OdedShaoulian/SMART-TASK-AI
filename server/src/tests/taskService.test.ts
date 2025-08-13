@@ -1,12 +1,27 @@
 import { TaskService } from '../services/taskService';
-import { PrismaClient } from '@prisma/client';
 
 // Mock Prisma
-jest.mock('@prisma/client');
+jest.mock('@prisma/client', () => ({
+  PrismaClient: jest.fn().mockImplementation(() => ({
+    task: {
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+    subtask: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+  })),
+}));
 
 describe('TaskService', () => {
   let taskService: TaskService;
-  let mockPrisma: jest.Mocked<PrismaClient>;
+  let mockPrisma: any;
 
   beforeEach(() => {
     // Clear all mocks
