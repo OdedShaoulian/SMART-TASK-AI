@@ -7,7 +7,7 @@
   "dependencies": {
     "@clerk/clerk-react": "^5.38.1",
     "@clerk/express": "^1.7.15",
-    "@clerk/react-router": "^1.8.9",
+    "@clerk/react-router": "1.8.9",
     "react-router": "^6.20.1",
     "react-router-dom": "^6.20.1"
   }
