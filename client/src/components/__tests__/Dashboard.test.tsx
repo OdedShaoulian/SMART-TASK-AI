@@ -1,8 +1,5 @@
-// Temporarily disabled due to testing library compatibility issues
-// TODO: Fix testing library imports when dependencies are properly installed
-
-/*
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render } from '@testing-library/react';
+import { screen, waitFor, fireEvent } from '@testing-library/dom';
 import '@testing-library/jest-dom';
 import { BrowserRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
@@ -260,4 +257,3 @@ describe('Dashboard', () => {
     });
   });
 });
-*/
