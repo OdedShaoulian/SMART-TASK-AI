@@ -1,118 +1,73 @@
-name: Deploy Backend
+name: Deploy Backend (App Service, gated by CI)
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'server/**'
-      - '.github/workflows/deploy-backend.yml'
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
 
 permissions:
-  id-token: write
   contents: read
 
+concurrency:
+  group: appsvc-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  deploy-production:
-    name: Deploy to Production
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    # environment: production  # Uncomment after creating production environment in repo settings
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: server/package-lock.json
+          ref: ${{ github.event.workflow_run.head_sha }}
 
-      # A. PREFLIGHT VALIDATION
-      - name: Preflight Validation
-        id: preflight
+      # --- Install jq for JSON parsing ---
+      - name: Install jq
         run: |
-          echo "=== PREFLIGHT VALIDATION ==="
-          
-          # 1. Validate repository structure
-          echo "1. Repository structure validation:"
+          sudo apt-get update
+          sudo apt-get install -y jq
+          echo "✅ jq installed"
+
+      # --- Preflight: verify structure and resolve package path ---
+      - name: Preflight package path
+        id: pkg
+        shell: bash
+        run: |
+          set -e
+          echo "Repo root:"
           ls -la
-          echo "Server folder:"
-          ls -la server/
-          
-          # 2. Validate server/package.json
-          if [ ! -f "server/package.json" ]; then
-            echo "❌ ERROR: server/package.json not found"
-            exit 1
-          fi
-          
-          echo "2. Package.json validation:"
-          cat server/package.json | jq '.scripts.start' || echo "❌ ERROR: Invalid package.json"
-          
-          # 3. Check if build script exists
-          if ! grep -q '"build"' server/package.json; then
-            echo "❌ ERROR: No build script found in package.json"
-            exit 1
-          fi
-          
-          # 4. Validate package path
-          if [ -d "server/deploy" ] && [ "$(ls -A server/deploy)" ]; then
-            echo "✅ Using pre-built package: ./server/deploy"
-            echo "resolved_package=./server/deploy" >> $GITHUB_OUTPUT
-            echo "package_type=prebuilt" >> $GITHUB_OUTPUT
+          test -d server || { echo "❌ Missing server/ folder"; exit 1; }
+          ls -la server
+          test -f server/package.json || { echo "❌ Missing server/package.json"; exit 1; }
+
+          # Prefer a prebuilt bundle if present and non-empty; else use server/
+          if [ -d "./server/deploy" ] && [ "$(find ./server/deploy -type f | wc -l)" -gt 0 ]; then
+            PKG="./server/deploy"
+            echo "Using prebuilt package: $PKG"
           else
-            echo "✅ Using source package: ./server"
-            echo "resolved_package=./server" >> $GITHUB_OUTPUT
-            echo "package_type=source" >> $GITHUB_OUTPUT
+            PKG="server"
+            echo "Using source package: $PKG"
           fi
-          
-          echo "3. Package path resolved: ${{ steps.preflight.outputs.resolved_package }}"
-          echo "4. Package type: ${{ steps.preflight.outputs.package_type }}"
+          echo "Resolved package path: $PKG"
+          echo "pkg=$PKG" >> "$GITHUB_OUTPUT"
 
-      # B. SLOT SANITY CHECK
-      - name: Slot Validation
-        id: slot_check
+      # --- Build server (required for both strategies) ---
+      - name: Build server
+        working-directory: server
         run: |
-          echo "=== SLOT VALIDATION ==="
-          
-          # Production is the default slot, so we don't need to specify it
-          # This prevents conflicts with non-existent slots
-          echo "✅ Using default production slot (no slot-name specified)"
-          echo "slot_name=" >> $GITHUB_OUTPUT
-
-      # B.1. BUILD APPLICATION (for both strategies)
-      - name: Build Application
-        working-directory: ./server
-        run: |
-          echo "=== BUILD APPLICATION ==="
-          
-          # Clean previous builds
-          rm -rf dist
-          
-          # Install dependencies
+          echo "Building server..."
           npm ci
-          
-          # Build application
           npm run build
-          
-          # Generate Prisma client
           npm run db:generate
-          
-          echo "✅ Build completed successfully"
-          echo "Build output:"
-          ls -la dist/
+          echo "✅ Build completed"
 
-      # B.2. CREATE DEPLOYMENT PACKAGE (if using pre-built strategy)
-      - name: Create Deployment Package
-        if: steps.preflight.outputs.package_type == 'prebuilt'
-        working-directory: ./server
+      # --- Create deployment package if using prebuilt strategy ---
+      - name: Create deployment package
+        if: steps.pkg.outputs.pkg == './server/deploy'
+        working-directory: server
         run: |
-          echo "=== CREATE DEPLOYMENT PACKAGE ==="
+          echo "Creating optimized deployment package..."
           
           # Clean previous deployment package
           rm -rf deploy
@@ -178,12 +133,14 @@ jobs:
           echo "Package size:"
           du -sh deploy
 
-      # C. AZURE CONFIGURATION (if using source package)
-      - name: Create Azure Configuration
-        if: steps.preflight.outputs.package_type == 'source'
-        working-directory: ./server
+
+
+      # --- Create Azure configuration for source package ---
+      - name: Create Azure configuration
+        if: steps.pkg.outputs.pkg == 'server'
+        working-directory: server
         run: |
-          echo "=== AZURE CONFIGURATION ==="
+          echo "Creating Azure configuration files..."
           
           # Create .deployment file for Azure
           echo "SCM_DO_BUILD_DURING_DEPLOYMENT=true" > .deployment
@@ -218,25 +175,24 @@ jobs:
           echo "Files created:"
           ls -la .deployment web.config
 
-      # D. FINAL PACKAGE VALIDATION
-      - name: Final Package Validation
+      # --- Final package validation ---
+      - name: Final package validation
         run: |
           echo "=== FINAL PACKAGE VALIDATION ==="
+          echo "Package path: ${{ steps.pkg.outputs.pkg }}"
+          echo "Build mode: ${{ steps.pkg.outputs.pkg == 'server' && 'source' || 'prebuilt' }}"
           
-          echo "Package path: ${{ steps.preflight.outputs.resolved_package }}"
-          echo "Package type: ${{ steps.preflight.outputs.package_type }}"
-          
-          if [ -d "${{ steps.preflight.outputs.resolved_package }}" ]; then
+          if [ -d "${{ steps.pkg.outputs.pkg }}" ]; then
             echo "Package contents:"
-            ls -la "${{ steps.preflight.outputs.resolved_package }}"
+            ls -la "${{ steps.pkg.outputs.pkg }}"
             
-            if [ -f "${{ steps.preflight.outputs.resolved_package }}/package.json" ]; then
+            if [ -f "${{ steps.pkg.outputs.pkg }}/package.json" ]; then
               echo "Package.json contents:"
-              cat "${{ steps.preflight.outputs.resolved_package }}/package.json"
+              cat "${{ steps.pkg.outputs.pkg }}/package.json"
             fi
             
             echo "Package size:"
-            du -sh "${{ steps.preflight.outputs.resolved_package }}"
+            du -sh "${{ steps.pkg.outputs.pkg }}"
           else
             echo "❌ ERROR: Package directory does not exist"
             exit 1
@@ -244,34 +200,100 @@ jobs:
           
           echo "✅ Package validation completed"
 
-      # E. CONCURRENT DEPLOYMENT CHECK
-      - name: Check Concurrent Deployments
-        id: deployment_check
+      # --- Parse publish profile for Kudu basic auth (to inspect status) ---
+      - name: Parse publish profile for Kudu auth
+        id: kudu_auth
+        shell: bash
         run: |
-          echo "=== CONCURRENT DEPLOYMENT CHECK ==="
-          
-          # Extract app name from publish profile for Kudu API calls
-          # This is a simplified check - in production, you'd parse the publish profile
-          APP_NAME="SMARTTASK-AI"
-          
-          echo "Checking for concurrent deployments..."
-          echo "App name: $APP_NAME"
-          
-          # Note: We'll do a more thorough check in the deployment step
-          echo "✅ Proceeding with deployment"
+          set -e
+          echo "${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}" > pubprofile.xml
+          USER=$(sed -n 's/.*publishMethod="MSDeploy".*userName="\([^"]*\)".*/\1/p' pubprofile.xml | head -1)
+          PASS=$(sed -n 's/.*publishMethod="MSDeploy".*userPWD="\([^"]*\)".*/\1/p' pubprofile.xml | head -1)
+          if [ -z "$USER" ] || [ -z "$PASS" ]; then
+            echo "❌ Could not extract MSDeploy creds from publish profile"
+            exit 1
+          fi
+          AUTH=$(printf "%s:%s" "$USER" "$PASS" | base64)
+          echo "auth=$AUTH" >> "$GITHUB_OUTPUT"
+          echo "✅ Kudu auth extracted"
 
-      # F. DEPLOYMENT WITH RETRIES
-      - name: Deploy to Azure Web App
-        id: deploy
+      # --- Inspect Kudu and wait until idle to avoid 409 conflicts ---
+      - name: Wait for Kudu to be idle
+        shell: bash
+        env:
+          AUTH: ${{ steps.kudu_auth.outputs.auth }}
+        run: |
+          set -e
+          BASE="https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net"
+          echo "Checking Kudu deployment status..."
+          
+          for delay in 0 10 20 40 60 90; do
+            [ $delay -gt 0 ] && echo "Kudu busy. Sleeping ${delay}s..." && sleep $delay
+            
+            res=$(curl -s -H "Authorization: Basic $AUTH" "$BASE/api/deployments/latest" || true)
+            end=$(echo "$res" | jq -r '.end_time' 2>/dev/null || echo null)
+            prog=$(echo "$res" | jq -r '.progress' 2>/dev/null || echo null)
+            status=$(echo "$res" | jq -r '.status_text' 2>/dev/null || echo null)
+            
+            echo "Latest deployment: end_time=$end, progress=$prog, status=$status"
+            
+            if [ "$end" != "null" ] && [ "$prog" = "null" ]; then
+              echo "✅ Kudu idle - proceeding with deployment"
+              exit 0
+            fi
+          done
+          
+          echo "::warning::Kudu may still be busy; proceeding anyway."
+
+      # --- First deploy attempt (no slot-name!) ---
+      - name: Deploy to Azure Web App (attempt 1)
+        id: deploy1
         uses: azure/webapps-deploy@v3
+        continue-on-error: true
         with:
-          app-name: 'SMARTTASK-AI'
-          # No slot-name specified (uses default production)
-          package: ${{ steps.preflight.outputs.resolved_package }}
+          app-name: SMARTTASK-AI
+          package: ${{ steps.pkg.outputs.pkg }}
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
 
-      # G. PRISMA MIGRATIONS
-      - name: Run Prisma Migrations
+      # --- If first attempt failed, wait again, then retry once ---
+      - name: Wait again if first attempt failed
+        if: ${{ steps.deploy1.outcome == 'failure' }}
+        shell: bash
+        env:
+          AUTH: ${{ steps.kudu_auth.outputs.auth }}
+        run: |
+          set -e
+          BASE="https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net"
+          echo "First deployment failed. Waiting for Kudu to be idle before retry..."
+          
+          for delay in 20 40 60 90; do
+            echo "Retry backoff ${delay}s..."
+            sleep $delay
+            
+            res=$(curl -s -H "Authorization: Basic $AUTH" "$BASE/api/deployments/latest" || true)
+            end=$(echo "$res" | jq -r '.end_time' 2>/dev/null || echo null)
+            prog=$(echo "$res" | jq -r '.progress' 2>/dev/null || echo null)
+            status=$(echo "$res" | jq -r '.status_text' 2>/dev/null || echo null)
+            
+            echo "Latest deployment: end_time=$end, progress=$prog, status=$status"
+            
+            if [ "$end" != "null" ] && [ "$prog" = "null" ]; then
+              echo "✅ Kudu idle - proceeding with retry"
+              break
+            fi
+          done
+
+      - name: Deploy to Azure Web App (attempt 2)
+        if: ${{ steps.deploy1.outcome == 'failure' }}
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: SMARTTASK-AI
+          package: ${{ steps.pkg.outputs.pkg }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
+
+      # --- Prisma migrations after successful deployment ---
+      - name: Run Prisma migrations
+        if: ${{ success() }}
         working-directory: ./server
         run: |
           echo "=== PRISMA MIGRATIONS ==="
@@ -288,8 +310,9 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
 
-      # H. HEALTH CHECK
-      - name: Health Check
+      # --- Health check after successful deployment ---
+      - name: Health check
+        if: ${{ success() }}
         run: |
           echo "=== HEALTH CHECK ==="
           echo "Waiting for app to start..."
@@ -300,60 +323,67 @@ jobs:
           curl -f https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/health || echo "Health check failed, but deployment may still be successful"
           echo "Health check completed"
 
-      # I. SUCCESS NOTIFICATION
+      # --- Success notification ---
       - name: Notify deployment success
-        if: success()
+        if: ${{ success() }}
         run: |
           echo "✅ Successfully deployed to production"
-          echo "Package used: ${{ steps.preflight.outputs.resolved_package }}"
-          echo "Build strategy: ${{ steps.preflight.outputs.package_type }}"
+          echo "Package used: ${{ steps.pkg.outputs.pkg }}"
+          echo "Build mode: ${{ steps.pkg.outputs.pkg == 'server' && 'source' || 'prebuilt' }}"
+          echo "Slot used: default (production)"
           echo "Deployment completed successfully!"
 
-      # J. FAILURE DIAGNOSTICS
-      - name: Failure Diagnostics
-        if: failure()
+      # --- On failure, upload diagnostics ---
+      - name: Upload diagnostics on failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-deploy-diagnostics-${{ github.run_id }}
+          path: |
+            server/package.json
+            server/package-lock.json
+            server/
+            pubprofile.xml
+          retention-days: 30
+
+      # --- Failure diagnostics ---
+      - name: Failure diagnostics
+        if: ${{ failure() }}
+        shell: bash
+        env:
+          AUTH: ${{ steps.kudu_auth.outputs.auth }}
         run: |
           echo "=== FAILURE DIAGNOSTICS ==="
           
           # 1. Package path used
-          echo "1. Package path used: ${{ steps.preflight.outputs.resolved_package }}"
+          echo "1. Package path used: ${{ steps.pkg.outputs.pkg }}"
           
-          # 2. Package type
-          echo "2. Package type: ${{ steps.preflight.outputs.package_type }}"
+          # 2. Build mode
+          echo "2. Build mode: ${{ steps.pkg.outputs.pkg == 'server' && 'source' || 'prebuilt' }}"
           
           # 3. Slot information
-          echo "3. Slot used: ${{ steps.slot_check.outputs.slot_name || 'default (production)' }}"
+          echo "3. Slot used: default (production) - no slot-name specified"
           
-          # 4. Build strategy
-          echo "4. Build strategy: ${{ steps.preflight.outputs.package_type == 'source' && 'Oryx build' || 'Pre-built package' }}"
-          
-          # 5. Package contents (if available)
-          if [ -d "${{ steps.preflight.outputs.resolved_package }}" ]; then
-            echo "5. Package contents:"
-            ls -la "${{ steps.preflight.outputs.resolved_package }}"
+          # 4. Package contents (if available)
+          if [ -d "${{ steps.pkg.outputs.pkg }}" ]; then
+            echo "4. Package contents:"
+            ls -la "${{ steps.pkg.outputs.pkg }}"
             
-                        if [ -f "${{ steps.preflight.outputs.resolved_package }}/package.json" ]; then
-              echo "6. Package.json contents:"
-              cat "${{ steps.preflight.outputs.resolved_package }}/package.json"
+            if [ -f "${{ steps.pkg.outputs.pkg }}/package.json" ]; then
+              echo "5. Package.json contents:"
+              cat "${{ steps.pkg.outputs.pkg }}/package.json"
             fi
           fi
           
-          # 6. Deployment logs (if available)
-          if [ -f "${{ steps.deploy.outputs.log-path }}" ]; then
-            echo "7. Deployment logs:"
-            cat "${{ steps.deploy.outputs.log-path }}"
-          fi
+          # 5. Kudu deployment status
+          echo "6. Kudu deployment status:"
+          BASE="https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net"
+          res=$(curl -s -H "Authorization: Basic $AUTH" "$BASE/api/deployments/latest" || echo "Failed to fetch Kudu status")
+          echo "$res" | jq . 2>/dev/null || echo "$res"
+          
+          # 6. Recent deployments
+          echo "7. Recent deployments:"
+          res=$(curl -s -H "Authorization: Basic $AUTH" "$BASE/api/deployments" || echo "Failed to fetch recent deployments")
+          echo "$res" | jq '.[0:3]' 2>/dev/null || echo "$res"
           
           echo "❌ Deployment failed - see diagnostics above for troubleshooting"
-
-      # K. UPLOAD DIAGNOSTIC ARTIFACTS
-      - name: Upload Diagnostic Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: deployment-diagnostics-${{ github.run_id }}
-          path: |
-            server/package.json
-            server/package-lock.json
-            ${{ steps.preflight.outputs.resolved_package }}/
-          retention-days: 30
