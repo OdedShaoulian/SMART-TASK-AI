@@ -11,10 +11,16 @@ import app from '../app.js';
 
 // Mock the auth middleware to inject user ID
 jest.mock('../middleware/authMiddleware.js', () => ({
-  authMiddleware: (req: any, res: any, next: any) => {
+  authenticateUser: (req: any, res: any, next: any) => {
     // Simulate authentication by adding userId to request
-    req.userId = req.headers['x-user-id'] || 'default-user';
-    next();
+    // Only set userId if x-user-id header is present
+    if (req.headers['x-user-id']) {
+      req.userId = req.headers['x-user-id'];
+      next();
+    } else {
+      // Return 401 if no user ID header
+      res.status(401).json({ error: 'User ID required' });
+    }
   },
 }));
 
@@ -85,8 +91,8 @@ describe('Task API Endpoints', () => {
         title: 'New Task',
         userId: testUserId,
         completed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
         subtasks: [],
       };
 
@@ -118,8 +124,8 @@ describe('Task API Endpoints', () => {
         title: 'Test Task',
         userId: testUserId,
         completed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
         subtasks: [],
       };
 
@@ -151,8 +157,8 @@ describe('Task API Endpoints', () => {
         title: 'Updated Task',
         userId: testUserId,
         completed: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
         subtasks: [],
       };
 
@@ -180,6 +186,9 @@ describe('Task API Endpoints', () => {
 
   describe('DELETE /api/tasks/:taskId', () => {
     it('should return 404 when taskId is invalid', async () => {
+      // Mock that the delete operation returns 0 deleted items (task not found)
+      prisma.task.deleteMany.mockResolvedValue({ count: 0 });
+      
       const response = await request(app)
         .delete('/api/tasks/invalid-id')
         .set('x-user-id', testUserId)
@@ -217,8 +226,8 @@ describe('Task API Endpoints', () => {
         title: 'New Subtask',
         taskId: 'task1',
         completed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
       // Mock that the parent task exists
@@ -260,8 +269,8 @@ describe('Task API Endpoints', () => {
         title: 'Updated Subtask',
         taskId: 'task1',
         completed: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
       // Mock that the subtask exists and belongs to user's task
@@ -280,6 +289,9 @@ describe('Task API Endpoints', () => {
 
   describe('DELETE /api/tasks/subtasks/:subtaskId', () => {
     it('should return 404 when subtaskId is invalid', async () => {
+      // Mock that the delete operation returns 0 deleted items (subtask not found)
+      prisma.subtask.deleteMany.mockResolvedValue({ count: 0 });
+      
       const response = await request(app)
         .delete('/api/tasks/subtasks/invalid-id')
         .set('x-user-id', testUserId)

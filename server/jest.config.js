@@ -11,6 +11,7 @@ export default {
     }],
   },
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
+  testPathIgnorePatterns: ['<rootDir>/dist/'],
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',
