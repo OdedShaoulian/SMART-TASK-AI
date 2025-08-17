@@ -43,12 +43,29 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
 
+      - name: Prepare deployment package
+        working-directory: ./server
+        run: |
+          # Create a clean deployment package
+          mkdir -p deploy
+          cp -r dist/* deploy/
+          cp package*.json deploy/
+          cp -r node_modules deploy/
+          cp -r prisma deploy/
+          # Create a .deployment file for Azure
+          echo "SCM_DO_BUILD_DURING_DEPLOYMENT=false" > deploy/.deployment
+          # List contents for debugging
+          echo "Deployment package contents:"
+          ls -la deploy/
+          echo "Dist contents:"
+          ls -la dist/
+
       - name: Deploy to Azure Web App - Production
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'SMARTTASK-AI'
           slot-name: 'Production'
-          package: ./server
+          package: ./server/deploy
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
 
       - name: Run Prisma migrations
