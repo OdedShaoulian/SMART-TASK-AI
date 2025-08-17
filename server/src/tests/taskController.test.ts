@@ -8,24 +8,37 @@ jest.mock('../services/taskService');
 
 describe('TaskController', () => {
   let taskController: TaskController;
-  let mockTaskService: any;
+  let mockTaskService: jest.Mocked<TaskService>;
   let mockRequest: Partial<AuthenticatedRequest>;
   let mockResponse: Partial<Response>;
-  let mockJson: any;
-  let mockStatus: any;
+  let mockJson: jest.Mock;
+  let mockStatus: jest.Mock;
+  let mockSend: jest.Mock;
 
   beforeEach(() => {
-    taskController = new TaskController();
-    mockTaskService = new TaskService();
-    (taskController as any).taskService = mockTaskService;
+    // Create a mock TaskService
+    mockTaskService = {
+      getUserTasks: jest.fn(),
+      getTaskById: jest.fn(),
+      createTask: jest.fn(),
+      updateTask: jest.fn(),
+      deleteTask: jest.fn(),
+      createSubtask: jest.fn(),
+      updateSubtask: jest.fn(),
+      deleteSubtask: jest.fn(),
+    } as any;
+
+    // Create controller with mocked service
+    taskController = new TaskController(mockTaskService);
 
     mockJson = jest.fn();
-    mockStatus = jest.fn().mockReturnValue({ json: mockJson });
+    mockSend = jest.fn();
+    mockStatus = jest.fn().mockReturnValue({ json: mockJson, send: mockSend });
     
     mockResponse = {
       json: mockJson,
       status: mockStatus,
-      send: jest.fn(),
+      send: mockSend,
     } as Partial<Response>;
   });
 
@@ -36,7 +49,7 @@ describe('TaskController', () => {
         { id: '2', title: 'Test Task 2', userId: 'user123', completed: true, createdAt: new Date(), updatedAt: new Date() },
       ];
 
-      mockTaskService.getUserTasks = jest.fn().mockResolvedValue(mockTasks);
+      mockTaskService.getUserTasks.mockResolvedValue(mockTasks);
       mockRequest = { userId: 'user123' };
 
       await taskController.getUserTasks(mockRequest as AuthenticatedRequest, mockResponse as Response);
@@ -47,7 +60,7 @@ describe('TaskController', () => {
 
     it('should handle errors when getting user tasks', async () => {
       const error = new Error('Database error');
-      mockTaskService.getUserTasks = jest.fn().mockRejectedValue(error);
+      mockTaskService.getUserTasks.mockRejectedValue(error);
       mockRequest = { userId: 'user123' };
 
       await taskController.getUserTasks(mockRequest as AuthenticatedRequest, mockResponse as Response);
@@ -67,7 +80,7 @@ describe('TaskController', () => {
         createdAt: new Date(),
         updatedAt: new Date()
       };
-      mockTaskService.getTaskById = jest.fn().mockResolvedValue(mockTask);
+      mockTaskService.getTaskById.mockResolvedValue(mockTask);
       mockRequest = { 
         userId: 'user123',
         params: { taskId: '1' }
@@ -92,7 +105,7 @@ describe('TaskController', () => {
     });
 
     it('should return 404 when task is not found', async () => {
-      mockTaskService.getTaskById = jest.fn().mockResolvedValue(null);
+      mockTaskService.getTaskById.mockResolvedValue(null);
       mockRequest = { 
         userId: 'user123',
         params: { taskId: '999' }
@@ -115,7 +128,7 @@ describe('TaskController', () => {
         createdAt: new Date(),
         updatedAt: new Date()
       };
-      mockTaskService.createTask = jest.fn().mockResolvedValue(mockTask);
+      mockTaskService.createTask.mockResolvedValue(mockTask);
       mockRequest = { 
         userId: 'user123',
         body: { title: 'New Task' }
@@ -164,7 +177,7 @@ describe('TaskController', () => {
         createdAt: new Date(),
         updatedAt: new Date()
       };
-      mockTaskService.createTask = jest.fn().mockResolvedValue(mockTask);
+      mockTaskService.createTask.mockResolvedValue(mockTask);
       mockRequest = { 
         userId: 'user123',
         body: { title: '  Trimmed Task  ' }
@@ -189,7 +202,7 @@ describe('TaskController', () => {
         createdAt: new Date(),
         updatedAt: new Date()
       };
-      mockTaskService.updateTask = jest.fn().mockResolvedValue(mockTask);
+      mockTaskService.updateTask.mockResolvedValue(mockTask);
       mockRequest = { 
         userId: 'user123',
         params: { taskId: '1' },
@@ -219,7 +232,7 @@ describe('TaskController', () => {
     });
 
     it('should return 404 when task is not found', async () => {
-      mockTaskService.updateTask = jest.fn().mockResolvedValue(null);
+      mockTaskService.updateTask.mockResolvedValue(null);
       mockRequest = { 
         userId: 'user123',
         params: { taskId: '999' },
@@ -235,7 +248,7 @@ describe('TaskController', () => {
 
   describe('deleteTask', () => {
     it('should delete task successfully', async () => {
-      mockTaskService.deleteTask = jest.fn().mockResolvedValue(true);
+      mockTaskService.deleteTask.mockResolvedValue(true);
       mockRequest = { 
         userId: 'user123',
         params: { taskId: '1' }
@@ -245,7 +258,7 @@ describe('TaskController', () => {
 
       expect(mockTaskService.deleteTask).toHaveBeenCalledWith('1', 'user123');
       expect(mockStatus).toHaveBeenCalledWith(204);
-      expect(mockResponse.send).toHaveBeenCalled();
+      expect(mockSend).toHaveBeenCalled();
     });
 
     it('should return 400 when taskId is missing', async () => {
@@ -261,7 +274,7 @@ describe('TaskController', () => {
     });
 
     it('should return 404 when task is not found', async () => {
-      mockTaskService.deleteTask = jest.fn().mockResolvedValue(false);
+      mockTaskService.deleteTask.mockResolvedValue(false);
       mockRequest = { 
         userId: 'user123',
         params: { taskId: '999' }
@@ -284,7 +297,7 @@ describe('TaskController', () => {
         createdAt: new Date(),
         updatedAt: new Date()
       };
-      mockTaskService.createSubtask = jest.fn().mockResolvedValue(mockSubtask);
+      mockTaskService.createSubtask.mockResolvedValue(mockSubtask);
       mockRequest = { 
         userId: 'user123',
         params: { taskId: 'task1' },
@@ -329,7 +342,7 @@ describe('TaskController', () => {
 
     it('should return 404 when parent task is not found', async () => {
       const error = new Error('Task not found or access denied');
-      mockTaskService.createSubtask = jest.fn().mockRejectedValue(error);
+      mockTaskService.createSubtask.mockRejectedValue(error);
       mockRequest = { 
         userId: 'user123',
         params: { taskId: 'task1' },
@@ -353,7 +366,7 @@ describe('TaskController', () => {
         createdAt: new Date(),
         updatedAt: new Date()
       };
-      mockTaskService.updateSubtask = jest.fn().mockResolvedValue(mockSubtask);
+      mockTaskService.updateSubtask.mockResolvedValue(mockSubtask);
       mockRequest = { 
         userId: 'user123',
         params: { subtaskId: '1' },
@@ -383,7 +396,7 @@ describe('TaskController', () => {
     });
 
     it('should return 404 when subtask is not found', async () => {
-      mockTaskService.updateSubtask = jest.fn().mockResolvedValue(null);
+      mockTaskService.updateSubtask.mockResolvedValue(null);
       mockRequest = { 
         userId: 'user123',
         params: { subtaskId: '999' },
@@ -399,7 +412,7 @@ describe('TaskController', () => {
 
   describe('deleteSubtask', () => {
     it('should delete subtask successfully', async () => {
-      mockTaskService.deleteSubtask = jest.fn().mockResolvedValue(true);
+      mockTaskService.deleteSubtask.mockResolvedValue(true);
       mockRequest = { 
         userId: 'user123',
         params: { subtaskId: '1' }
@@ -409,7 +422,7 @@ describe('TaskController', () => {
 
       expect(mockTaskService.deleteSubtask).toHaveBeenCalledWith('1', 'user123');
       expect(mockStatus).toHaveBeenCalledWith(204);
-      expect(mockResponse.send).toHaveBeenCalled();
+      expect(mockSend).toHaveBeenCalled();
     });
 
     it('should return 400 when subtaskId is missing', async () => {
@@ -425,7 +438,7 @@ describe('TaskController', () => {
     });
 
     it('should return 404 when subtask is not found', async () => {
-      mockTaskService.deleteSubtask = jest.fn().mockResolvedValue(false);
+      mockTaskService.deleteSubtask.mockResolvedValue(false);
       mockRequest = { 
         userId: 'user123',
         params: { subtaskId: '999' }

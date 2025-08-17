@@ -1,8 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { TaskController } from '../controllers/taskController';
+import { TaskController } from '../controllers/taskController.js';
+import { TaskService } from '../services/taskService.js';
 
 const router = Router();
-const taskController = new TaskController();
+
+// Create service and controller instances
+const taskService = new TaskService();
+const taskController = new TaskController(taskService);
 
 // Type for requests that include Clerk-authenticated userId
 type AuthenticatedRequest = Request & { userId: string };

@@ -8,13 +8,27 @@ import {
   UpdateSubtaskRequest,
 } from '../types/index.js';
 
-const prisma = new PrismaClient();
+// Lazy-loaded default Prisma client instance
+let defaultPrisma: PrismaClient | null = null;
+
+const getDefaultPrisma = () => {
+  if (!defaultPrisma) {
+    defaultPrisma = new PrismaClient();
+  }
+  return defaultPrisma;
+};
 
 export class TaskService {
+  private prisma: PrismaClient;
+
+  constructor(prismaClient?: PrismaClient) {
+    this.prisma = prismaClient || getDefaultPrisma();
+  }
+
   // Retrieve all tasks for a specific user, including subtasks
   async getUserTasks(userId: string): Promise<Task[]> {
     try {
-      return await prisma.task.findMany({
+      return await this.prisma.task.findMany({
         where: { userId },
         include: { subtasks: true }, // Include subtasks with the task
         orderBy: { createdAt: 'desc' }, // Order by creation date, descending
@@ -34,7 +48,7 @@ export class TaskService {
   // Retrieve a single task by ID and validate it belongs to the user
   async getTaskById(taskId: string, userId: string): Promise<Task | null> {
     try {
-      return await prisma.task.findFirst({
+      return await this.prisma.task.findFirst({
         where: { id: taskId, userId }, // Ensure the task belongs to the user
         include: { subtasks: true }, // Include subtasks with the task
       });
@@ -53,7 +67,7 @@ export class TaskService {
   // Create a new task for the user
   async createTask(data: CreateTaskRequest): Promise<Task> {
     try {
-      return await prisma.task.create({
+      return await this.prisma.task.create({
         data: {
           title: data.title, // Task title
           userId: data.userId, // Task creator userId
@@ -76,14 +90,14 @@ export class TaskService {
   async updateTask(taskId: string, userId: string, data: UpdateTaskRequest): Promise<Task | null> {
     try {
       // First, check if the task belongs to the user
-      const task = await prisma.task.findFirst({
+      const task = await this.prisma.task.findFirst({
         where: { id: taskId, userId }, // Ensure the task belongs to the user
       });
 
       if (!task) return null; // Return null if the task does not exist or is not owned by the user
 
       // Update the task if it exists and belongs to the user
-      return await prisma.task.update({
+      return await this.prisma.task.update({
         where: { id: taskId },
         data, // The updated task data
         include: { subtasks: true }, // Include subtasks with the task
@@ -103,7 +117,7 @@ export class TaskService {
   // Delete a task if it belongs to the user
   async deleteTask(taskId: string, userId: string): Promise<boolean> {
     try {
-      const result = await prisma.task.deleteMany({
+      const result = await this.prisma.task.deleteMany({
         where: { id: taskId, userId }, // Ensure the task belongs to the user
       });
       return result.count > 0; // Return true if the task was deleted, false if not found
@@ -123,14 +137,14 @@ export class TaskService {
   async createSubtask(data: CreateSubtaskRequest, userId: string): Promise<Subtask> {
     try {
       // Check if the task exists and belongs to the user
-      const task = await prisma.task.findFirst({
+      const task = await this.prisma.task.findFirst({
         where: { id: data.taskId, userId },
       });
 
       if (!task) throw new Error('Task not found or access denied'); // If task is not found or access denied
 
       // Create the subtask
-      return await prisma.subtask.create({
+      return await this.prisma.subtask.create({
         data: {
           title: data.title, // Subtask title
           taskId: data.taskId, // Parent task ID
@@ -152,7 +166,7 @@ export class TaskService {
   async updateSubtask(subtaskId: string, userId: string, data: UpdateSubtaskRequest): Promise<Subtask | null> {
     try {
       // Verify user ownership via related task
-      const subtask = await prisma.subtask.findFirst({
+      const subtask = await this.prisma.subtask.findFirst({
         where: {
           id: subtaskId,
           task: { userId }, // Ensure the task's user matches
@@ -162,7 +176,7 @@ export class TaskService {
       if (!subtask) return null; // Return null if the subtask is not found or not owned by the user
 
       // Update the subtask
-      return await prisma.subtask.update({
+      return await this.prisma.subtask.update({
         where: { id: subtaskId },
         data, // The updated subtask data
       });
@@ -181,7 +195,7 @@ export class TaskService {
   // Delete a subtask if it belongs to a task owned by the user
   async deleteSubtask(subtaskId: string, userId: string): Promise<boolean> {
     try {
-      const result = await prisma.subtask.deleteMany({
+      const result = await this.prisma.subtask.deleteMany({
         where: {
           id: subtaskId,
           task: { userId }, // Ensure the task's user matches

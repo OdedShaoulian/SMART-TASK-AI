@@ -7,14 +7,18 @@ import {
   UpdateSubtaskRequest,
 } from '../types/index.js';
 
-const taskService = new TaskService();
-
 type AuthenticatedRequest = Request & { userId: string };
 
 export class TaskController {
+  private taskService: TaskService;
+
+  constructor(taskService?: TaskService) {
+    this.taskService = taskService || new TaskService();
+  }
+
   async getUserTasks(req: AuthenticatedRequest, res: Response) {
     try {
-      const tasks = await taskService.getUserTasks(req.userId);
+      const tasks = await this.taskService.getUserTasks(req.userId);
       res.json(tasks);
     } catch (error) {
       console.error('Error getting user tasks:', error);
@@ -30,7 +34,7 @@ export class TaskController {
         return res.status(400).json({ error: 'Task ID is required' });
       }
 
-      const task = await taskService.getTaskById(taskId, req.userId);
+      const task = await this.taskService.getTaskById(taskId, req.userId);
 
       if (!task) {
         return res.status(404).json({ error: 'Task not found' });
@@ -51,7 +55,7 @@ export class TaskController {
         return res.status(400).json({ error: 'Title is required' });
       }
 
-      const task = await taskService.createTask({
+      const task = await this.taskService.createTask({
         title: title.trim(),
         userId: req.userId,
       });
@@ -72,7 +76,7 @@ export class TaskController {
         return res.status(400).json({ error: 'Task ID is required' });
       }
 
-      const task = await taskService.updateTask(taskId, req.userId, updateData);
+      const task = await this.taskService.updateTask(taskId, req.userId, updateData);
 
       if (!task) {
         return res.status(404).json({ error: 'Task not found' });
@@ -93,7 +97,7 @@ export class TaskController {
         return res.status(400).json({ error: 'Task ID is required' });
       }
 
-      const deleted = await taskService.deleteTask(taskId, req.userId);
+      const deleted = await this.taskService.deleteTask(taskId, req.userId);
 
       if (!deleted) {
         return res.status(404).json({ error: 'Task not found' });
@@ -119,7 +123,7 @@ export class TaskController {
         return res.status(400).json({ error: 'Title is required' });
       }
 
-      const subtask = await taskService.createSubtask(
+      const subtask = await this.taskService.createSubtask(
         { title: title.trim(), taskId },
         req.userId
       );
@@ -143,7 +147,7 @@ export class TaskController {
         return res.status(400).json({ error: 'Subtask ID is required' });
       }
 
-      const subtask = await taskService.updateSubtask(subtaskId, req.userId, updateData);
+      const subtask = await this.taskService.updateSubtask(subtaskId, req.userId, updateData);
 
       if (!subtask) {
         return res.status(404).json({ error: 'Subtask not found' });
@@ -164,7 +168,7 @@ export class TaskController {
         return res.status(400).json({ error: 'Subtask ID is required' });
       }
 
-      const deleted = await taskService.deleteSubtask(subtaskId, req.userId);
+      const deleted = await this.taskService.deleteSubtask(subtaskId, req.userId);
 
       if (!deleted) {
         return res.status(404).json({ error: 'Subtask not found' });

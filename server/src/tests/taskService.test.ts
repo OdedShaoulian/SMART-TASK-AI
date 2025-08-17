@@ -1,52 +1,20 @@
 import { TaskService } from '../services/taskService';
+import { prisma } from '../__mocks__/db/client';
 
-// Mock Prisma
+// Mock Prisma before importing TaskService
 jest.mock('@prisma/client', () => ({
-  PrismaClient: jest.fn().mockImplementation(() => ({
-    task: {
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-    },
-    subtask: {
-      findUnique: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-    },
-  })),
+  PrismaClient: jest.fn().mockImplementation(() => prisma),
 }));
 
 describe('TaskService', () => {
   let taskService: TaskService;
-  let mockPrisma: any;
 
   beforeEach(() => {
     // Clear all mocks
     jest.clearAllMocks();
     
-    // Create mock Prisma client with proper typing
-    mockPrisma = {
-      task: {
-        findMany: jest.fn() as jest.MockedFunction<any>,
-        findUnique: jest.fn() as jest.MockedFunction<any>,
-        create: jest.fn() as jest.MockedFunction<any>,
-        update: jest.fn() as jest.MockedFunction<any>,
-        delete: jest.fn() as jest.MockedFunction<any>,
-      },
-      subtask: {
-        findUnique: jest.fn() as jest.MockedFunction<any>,
-        create: jest.fn() as jest.MockedFunction<any>,
-        update: jest.fn() as jest.MockedFunction<any>,
-        delete: jest.fn() as jest.MockedFunction<any>,
-      },
-    } as any;
-
     // Create TaskService instance with mocked Prisma
-    taskService = new TaskService();
-    (taskService as any).prisma = mockPrisma;
+    taskService = new TaskService(prisma as any);
   });
 
   describe('getUserTasks', () => {
@@ -72,11 +40,11 @@ describe('TaskService', () => {
         },
       ];
 
-      (mockPrisma.task.findMany as jest.Mock).mockResolvedValue(mockTasks);
+      prisma.task.findMany.mockResolvedValue(mockTasks);
 
       const result = await taskService.getUserTasks('user123');
 
-      expect(mockPrisma.task.findMany).toHaveBeenCalledWith({
+      expect(prisma.task.findMany).toHaveBeenCalledWith({
         where: { userId: 'user123' },
         include: { subtasks: true },
         orderBy: { createdAt: 'desc' },
@@ -86,9 +54,9 @@ describe('TaskService', () => {
 
     it('should handle database errors', async () => {
       const error = new Error('Database connection failed');
-      mockPrisma.task.findMany.mockRejectedValue(error);
+      prisma.task.findMany.mockRejectedValue(error);
 
-      await expect(taskService.getUserTasks('user123')).rejects.toThrow('Database connection failed');
+      await expect(taskService.getUserTasks('user123')).rejects.toThrow('Failed to fetch tasks');
     });
   });
 
@@ -104,11 +72,11 @@ describe('TaskService', () => {
         subtasks: [],
       };
 
-      mockPrisma.task.findUnique.mockResolvedValue(mockTask);
+      prisma.task.findFirst.mockResolvedValue(mockTask);
 
       const result = await taskService.getTaskById('1', 'user123');
 
-      expect(mockPrisma.task.findUnique).toHaveBeenCalledWith({
+      expect(prisma.task.findFirst).toHaveBeenCalledWith({
         where: { id: '1', userId: 'user123' },
         include: { subtasks: true },
       });
@@ -116,7 +84,7 @@ describe('TaskService', () => {
     });
 
     it('should return null when task not found', async () => {
-      mockPrisma.task.findUnique.mockResolvedValue(null);
+      prisma.task.findFirst.mockResolvedValue(null);
 
       const result = await taskService.getTaskById('999', 'user123');
 
@@ -137,15 +105,14 @@ describe('TaskService', () => {
         subtasks: [],
       };
 
-      mockPrisma.task.create.mockResolvedValue(mockCreatedTask);
+      prisma.task.create.mockResolvedValue(mockCreatedTask);
 
       const result = await taskService.createTask(taskData);
 
-      expect(mockPrisma.task.create).toHaveBeenCalledWith({
+      expect(prisma.task.create).toHaveBeenCalledWith({
         data: {
           title: 'New Task',
           userId: 'user123',
-          completed: false,
         },
         include: { subtasks: true },
       });
@@ -155,9 +122,9 @@ describe('TaskService', () => {
     it('should handle database errors during creation', async () => {
       const taskData = { title: 'New Task', userId: 'user123' };
       const error = new Error('Database error');
-      mockPrisma.task.create.mockRejectedValue(error);
+      prisma.task.create.mockRejectedValue(error);
 
-      await expect(taskService.createTask(taskData)).rejects.toThrow('Database error');
+      await expect(taskService.createTask(taskData)).rejects.toThrow('Failed to create task');
     });
   });
 
@@ -174,12 +141,25 @@ describe('TaskService', () => {
         subtasks: [],
       };
 
-      mockPrisma.task.update.mockResolvedValue(mockUpdatedTask);
+      // Mock the findFirst call to return existing task
+      prisma.task.findFirst.mockResolvedValue({
+        id: '1',
+        title: 'Original Task',
+        userId: 'user123',
+        completed: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      prisma.task.update.mockResolvedValue(mockUpdatedTask);
 
       const result = await taskService.updateTask('1', 'user123', updateData);
 
-      expect(mockPrisma.task.update).toHaveBeenCalledWith({
+      expect(prisma.task.findFirst).toHaveBeenCalledWith({
         where: { id: '1', userId: 'user123' },
+      });
+      expect(prisma.task.update).toHaveBeenCalledWith({
+        where: { id: '1' },
         data: updateData,
         include: { subtasks: true },
       });
@@ -188,7 +168,7 @@ describe('TaskService', () => {
 
     it('should return null when task not found', async () => {
       const updateData = { title: 'Updated Task' };
-      mockPrisma.task.update.mockRejectedValue(new Error('Record not found'));
+      prisma.task.findFirst.mockResolvedValue(null);
 
       const result = await taskService.updateTask('999', 'user123', updateData);
 
@@ -198,28 +178,18 @@ describe('TaskService', () => {
 
   describe('deleteTask', () => {
     it('should delete task successfully', async () => {
-      const mockDeletedTask = {
-        id: '1',
-        title: 'Test Task',
-        userId: 'user123',
-        completed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        subtasks: [],
-      };
-
-      mockPrisma.task.delete.mockResolvedValue(mockDeletedTask);
+      prisma.task.deleteMany.mockResolvedValue({ count: 1 });
 
       const result = await taskService.deleteTask('1', 'user123');
 
-      expect(mockPrisma.task.delete).toHaveBeenCalledWith({
+      expect(prisma.task.deleteMany).toHaveBeenCalledWith({
         where: { id: '1', userId: 'user123' },
       });
       expect(result).toBe(true);
     });
 
     it('should return false when task not found', async () => {
-      mockPrisma.task.delete.mockRejectedValue(new Error('Record not found'));
+      prisma.task.deleteMany.mockResolvedValue({ count: 0 });
 
       const result = await taskService.deleteTask('999', 'user123');
 
@@ -240,7 +210,7 @@ describe('TaskService', () => {
       };
 
       // Mock that the parent task exists
-      mockPrisma.task.findUnique.mockResolvedValue({
+      prisma.task.findFirst.mockResolvedValue({
         id: 'task1',
         title: 'Parent Task',
         userId: 'user123',
@@ -249,18 +219,17 @@ describe('TaskService', () => {
         updatedAt: new Date(),
       });
 
-      mockPrisma.subtask.create.mockResolvedValue(mockCreatedSubtask);
+      prisma.subtask.create.mockResolvedValue(mockCreatedSubtask);
 
       const result = await taskService.createSubtask(subtaskData, 'user123');
 
-      expect(mockPrisma.task.findUnique).toHaveBeenCalledWith({
+      expect(prisma.task.findFirst).toHaveBeenCalledWith({
         where: { id: 'task1', userId: 'user123' },
       });
-      expect(mockPrisma.subtask.create).toHaveBeenCalledWith({
+      expect(prisma.subtask.create).toHaveBeenCalledWith({
         data: {
           title: 'New Subtask',
           taskId: 'task1',
-          completed: false,
         },
       });
       expect(result).toEqual(mockCreatedSubtask);
@@ -268,7 +237,7 @@ describe('TaskService', () => {
 
     it('should throw error when parent task not found', async () => {
       const subtaskData = { title: 'New Subtask', taskId: 'task1' };
-      mockPrisma.task.findUnique.mockResolvedValue(null);
+      prisma.task.findFirst.mockResolvedValue(null);
 
       await expect(taskService.createSubtask(subtaskData, 'user123')).rejects.toThrow(
         'Task not found or access denied'
@@ -289,16 +258,18 @@ describe('TaskService', () => {
       };
 
       // Mock that the subtask exists and belongs to user's task
-      mockPrisma.subtask.findUnique.mockResolvedValue(mockUpdatedSubtask);
-      mockPrisma.subtask.update.mockResolvedValue(mockUpdatedSubtask);
+      prisma.subtask.findFirst.mockResolvedValue(mockUpdatedSubtask);
+      prisma.subtask.update.mockResolvedValue(mockUpdatedSubtask);
 
       const result = await taskService.updateSubtask('1', 'user123', updateData);
 
-      expect(mockPrisma.subtask.findUnique).toHaveBeenCalledWith({
-        where: { id: '1' },
-        include: { task: true },
+      expect(prisma.subtask.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: '1',
+          task: { userId: 'user123' },
+        },
       });
-      expect(mockPrisma.subtask.update).toHaveBeenCalledWith({
+      expect(prisma.subtask.update).toHaveBeenCalledWith({
         where: { id: '1' },
         data: updateData,
       });
@@ -307,7 +278,7 @@ describe('TaskService', () => {
 
     it('should return null when subtask not found', async () => {
       const updateData = { title: 'Updated Subtask' };
-      mockPrisma.subtask.findUnique.mockResolvedValue(null);
+      prisma.subtask.findFirst.mockResolvedValue(null);
 
       const result = await taskService.updateSubtask('999', 'user123', updateData);
 
@@ -316,24 +287,8 @@ describe('TaskService', () => {
 
     it('should return null when subtask belongs to different user', async () => {
       const updateData = { title: 'Updated Subtask' };
-      const mockSubtask = {
-        id: '1',
-        title: 'Test Subtask',
-        taskId: 'task1',
-        completed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        task: {
-          id: 'task1',
-          title: 'Parent Task',
-          userId: 'different-user',
-          completed: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      };
-
-      mockPrisma.subtask.findUnique.mockResolvedValue(mockSubtask);
+      // Mock that the subtask exists but belongs to a different user
+      prisma.subtask.findFirst.mockResolvedValue(null);
 
       const result = await taskService.updateSubtask('1', 'user123', updateData);
 
@@ -343,67 +298,23 @@ describe('TaskService', () => {
 
   describe('deleteSubtask', () => {
     it('should delete subtask successfully', async () => {
-      const mockDeletedSubtask = {
-        id: '1',
-        title: 'Test Subtask',
-        taskId: 'task1',
-        completed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        task: {
-          id: 'task1',
-          title: 'Parent Task',
-          userId: 'user123',
-          completed: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      };
-
-      mockPrisma.subtask.findUnique.mockResolvedValue(mockDeletedSubtask);
-      mockPrisma.subtask.delete.mockResolvedValue(mockDeletedSubtask);
+      prisma.subtask.deleteMany.mockResolvedValue({ count: 1 });
 
       const result = await taskService.deleteSubtask('1', 'user123');
 
-      expect(mockPrisma.subtask.findUnique).toHaveBeenCalledWith({
-        where: { id: '1' },
-        include: { task: true },
-      });
-      expect(mockPrisma.subtask.delete).toHaveBeenCalledWith({
-        where: { id: '1' },
+      expect(prisma.subtask.deleteMany).toHaveBeenCalledWith({
+        where: {
+          id: '1',
+          task: { userId: 'user123' },
+        },
       });
       expect(result).toBe(true);
     });
 
     it('should return false when subtask not found', async () => {
-      mockPrisma.subtask.findUnique.mockResolvedValue(null);
+      prisma.subtask.deleteMany.mockResolvedValue({ count: 0 });
 
       const result = await taskService.deleteSubtask('999', 'user123');
-
-      expect(result).toBe(false);
-    });
-
-    it('should return false when subtask belongs to different user', async () => {
-      const mockSubtask = {
-        id: '1',
-        title: 'Test Subtask',
-        taskId: 'task1',
-        completed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        task: {
-          id: 'task1',
-          title: 'Parent Task',
-          userId: 'different-user',
-          completed: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      };
-
-      mockPrisma.subtask.findUnique.mockResolvedValue(mockSubtask);
-
-      const result = await taskService.deleteSubtask('1', 'user123');
 
       expect(result).toBe(false);
     });

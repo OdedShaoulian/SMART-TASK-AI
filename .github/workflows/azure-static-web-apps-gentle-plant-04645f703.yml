@@ -4,10 +4,19 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'client/**'
+      - '.github/workflows/azure-static-web-apps-gentle-plant-04645f703.yml'
   pull_request:
     types: [opened, synchronize, reopened, closed]
     branches:
       - main
+    paths:
+      - 'client/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build_and_deploy_job:

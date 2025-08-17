@@ -17,4 +17,7 @@ export default {
   ],
   setupFilesAfterEnv: ['<rootDir>/src/test/setup.ts'],
   moduleFileExtensions: ['ts', 'js'],
+  testTimeout: 10000,
+  clearMocks: true,
+  restoreMocks: true,
 }; 

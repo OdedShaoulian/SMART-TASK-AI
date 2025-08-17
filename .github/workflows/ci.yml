@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: CI
 
 on:
   push:
@@ -8,7 +8,6 @@ on:
 
 env:
   NODE_VERSION: '20'
-  DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
 jobs:
   # Server Tests
@@ -49,9 +48,9 @@ jobs:
         env:
           DATABASE_URL: mysql://root:root@localhost:3306/test_db
 
-      - name: Run server tests
+      - name: Run server tests with coverage
         working-directory: ./server
-        run: npm test
+        run: npm test -- --coverage
         env:
           DATABASE_URL: mysql://root:root@localhost:3306/test_db
 
@@ -82,7 +81,7 @@ jobs:
         working-directory: ./client
         run: npm ci
 
-      - name: Run client tests
+      - name: Run client tests with coverage
         working-directory: ./client
         run: npm run test:coverage
 
@@ -123,11 +122,41 @@ jobs:
         working-directory: ./client
         run: npm run lint
 
+  # Type Checking
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install server dependencies
+        working-directory: ./server
+        run: npm ci
+
+      - name: Install client dependencies
+        working-directory: ./client
+        run: npm ci
+
+      - name: Type check server
+        working-directory: ./server
+        run: npx tsc --noEmit
+
+      - name: Type check client
+        working-directory: ./client
+        run: npx tsc --noEmit
+
   # Build
   build:
     name: Build Application
     runs-on: ubuntu-latest
-    needs: [server-tests, client-tests, lint]
+    needs: [server-tests, client-tests, lint, type-check]
 
     steps:
       - name: Checkout code
@@ -166,7 +195,7 @@ jobs:
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
-    needs: [server-tests, client-tests, lint]
+    needs: [server-tests, client-tests, lint, type-check]
 
     services:
       mysql:
@@ -261,33 +290,3 @@ jobs:
       - name: Run security audit
         working-directory: ./client
         run: npm audit --audit-level moderate
-
-  # Type Check
-  type-check:
-    name: Type Check
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install server dependencies
-        working-directory: ./server
-        run: npm ci
-
-      - name: Install client dependencies
-        working-directory: ./client
-        run: npm ci
-
-      - name: Type check server
-        working-directory: ./server
-        run: npx tsc --noEmit
-
-      - name: Type check client
-        working-directory: ./client
-        run: npx tsc --noEmit
