@@ -39,7 +39,7 @@ jobs:
 
       - name: Build server
         working-directory: ./server
-        run: npm run build
+        run: npm run build:prod
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
 
