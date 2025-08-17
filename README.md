@@ -40,12 +40,12 @@ This project uses GitHub Actions for continuous integration and deployment with 
 **Triggers**: Push to `main` branch with changes in `server/**` directory
 
 **Purpose**: Deploy backend to Azure App Service
-- **Staging Environment**: Deploy to staging first
-- **Production Environment**: Deploy to production after staging success
+- **Production Environment**: Direct deployment to production
 - **Prisma Migrations**: Automatic database schema updates
-- **OIDC Authentication**: Secure Azure deployment without publish profiles
+- **Azure Service Principal**: Secure deployment using Azure credentials
 - **Path-based triggering**: Only runs when backend changes
 - **Concurrency control**: Prevents deployment conflicts
+- **Staging Environment**: Will be added later for staging→production pipeline
 
 ## 🔧 Local Development
 
@@ -106,8 +106,9 @@ smart-task-ai/
 
 ### CI/CD Secrets
 - `AZURE_STATIC_WEB_APPS_API_TOKEN_GENTLE_PLANT_04645F703`: Frontend deployment token
-- `STAGING_DATABASE_URL`: Staging database connection
-- `PRODUCTION_DATABASE_URL`: Production database connection
+- `AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912`: Backend deployment publish profile
+- `PRODUCTION_DATABASE_URL`: Production database connection (optional for now)
+- `STAGING_DATABASE_URL`: Staging database connection (will be added later)
 
 ## 🚀 Deployment
 

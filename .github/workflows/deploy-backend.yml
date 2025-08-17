@@ -17,59 +17,10 @@ permissions:
   contents: read
 
 jobs:
-  deploy-staging:
-    name: Deploy to Staging
-    runs-on: ubuntu-latest
-    # environment: staging  # Uncomment after creating staging environment in repo settings
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: server/package-lock.json
-
-      - name: Install server dependencies
-        working-directory: ./server
-        run: npm ci
-
-      - name: Build server
-        working-directory: ./server
-        run: npm run build
-        env:
-          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-
-      - name: Deploy to Azure Web App - Staging
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: 'SMARTTASK-AI-STAGING'
-          slot-name: 'Production'
-          package: ./server
-          startup-command: 'npm start'
-
-      - name: Run Prisma migrations
-        working-directory: ./server
-        run: |
-          echo "Running Prisma migrations..."
-          npm run db:migrate:deploy
-        env:
-          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-
-      - name: Health check
-        run: |
-          echo "Performing health check..."
-          # Add your staging health check URL here
-          # curl -f https://your-staging-app.azurewebsites.net/health
-
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
     # environment: production  # Uncomment after creating production environment in repo settings
-    needs: deploy-staging
     
     steps:
       - name: Checkout code
@@ -99,6 +50,7 @@ jobs:
           slot-name: 'Production'
           package: ./server
           startup-command: 'npm start'
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
 
       - name: Run Prisma migrations
         working-directory: ./server
