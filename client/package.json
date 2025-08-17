@@ -8,9 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest",
+    "test": "vitest --run --verbose",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest --coverage"
+    "test:coverage": "vitest --coverage",
+    "test:ci": "vitest --run --verbose --reporter=vitest-junit --outputFile=./reports/junit/junit.xml"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.40.0",
@@ -43,6 +44,8 @@
     "typescript-eslint": "^8.35.1",
     "vite": "^7.0.4",
     "vitest": "^1.3.1",
-    "@vitest/ui": "^1.3.1"
+    "@vitest/ui": "^1.3.1",
+    "jest-fetch-mock": "^3.0.3",
+    "vitest-junit": "^1.0.0"
   }
 }

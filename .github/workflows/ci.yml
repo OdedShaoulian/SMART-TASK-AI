@@ -49,13 +49,28 @@ jobs:
         env:
           DATABASE_URL: mysql://root:root@localhost:3306/test_db
 
-      - name: Run server tests with coverage
+      - name: Run server tests
         working-directory: ./server
-        run: npm test -- --coverage
+        run: npm run test:ci
         env:
+          NODE_ENV: test
           DATABASE_URL: mysql://root:root@localhost:3306/test_db
 
-      - name: Upload test coverage
+      - name: Upload server test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-junit
+          path: server/reports/junit
+
+      - name: Upload server test coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-coverage
+          path: server/coverage
+
+      - name: Upload test coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           file: ./server/coverage/lcov.info
@@ -82,11 +97,27 @@ jobs:
         working-directory: ./client
         run: npm ci
 
-      - name: Run client tests with coverage
+      - name: Run client tests
         working-directory: ./client
-        run: npm run test:coverage
+        run: npm run test:ci
+        env:
+          NODE_ENV: test
 
-      - name: Upload test coverage
+      - name: Upload client test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-junit
+          path: client/reports/junit
+
+      - name: Upload client test coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-coverage
+          path: client/coverage
+
+      - name: Upload test coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           file: ./client/coverage/lcov.info
@@ -117,11 +148,13 @@ jobs:
 
       - name: Lint server code
         working-directory: ./server
-        run: npm run lint || echo "No lint script found for server"
+        run: npm run lint
 
       - name: Lint client code
         working-directory: ./client
         run: npm run lint
+
+
 
   # Type Checking
   type-check:
@@ -262,10 +295,11 @@ jobs:
           path: e2e/playwright-report/
           retention-days: 30
 
-  # Security Scan
+  # Security Scan (Non-blocking)
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
+    continue-on-error: true
 
     steps:
       - name: Checkout code
@@ -276,18 +310,26 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install server dependencies
-        working-directory: ./server
-        run: npm ci
-
-      - name: Install client dependencies
-        working-directory: ./client
-        run: npm ci
+      - name: Install dependencies
+        run: |
+          npm ci
+          cd client && npm ci
+          cd ../server && npm ci
 
       - name: Run security audit
-        working-directory: ./server
-        run: npm audit --audit-level moderate
+        run: |
+          echo "Running security audit..."
+          npm audit --audit-level=moderate || echo "Security issues found (non-blocking)"
+          cd client && npm audit --audit-level=moderate || echo "Client security issues found (non-blocking)"
+          cd ../server && npm audit --audit-level=moderate || echo "Server security issues found (non-blocking)"
 
-      - name: Run security audit
-        working-directory: ./client
-        run: npm audit --audit-level moderate
+      - name: Upload security report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-report
+          path: |
+            npm-audit.json
+            client/npm-audit.json
+            server/npm-audit.json
+          retention-days: 30

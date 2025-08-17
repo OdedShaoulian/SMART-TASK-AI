@@ -1,0 +1,2 @@
+# This file ensures the JUnit reports directory is tracked by git
+# JUnit XML reports will be generated here during CI runs
