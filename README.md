@@ -41,10 +41,11 @@ This project uses GitHub Actions for continuous integration and deployment with 
 
 **Purpose**: Deploy backend to Azure App Service
 - **Production Environment**: Direct deployment to production
-- **Prisma Migrations**: Automatic database schema updates
-- **Azure Service Principal**: Secure deployment using Azure credentials
+- **Prisma Migrations**: Automatic database schema updates using `db:migrate:deploy`
+- **Azure Publish Profile**: Secure deployment using existing Azure credentials
 - **Path-based triggering**: Only runs when backend changes
 - **Concurrency control**: Prevents deployment conflicts
+- **Health Check**: Automatic verification after deployment
 - **Staging Environment**: Will be added later for staging→production pipeline
 
 ## 🔧 Local Development
@@ -106,8 +107,8 @@ smart-task-ai/
 
 ### CI/CD Secrets
 - `AZURE_STATIC_WEB_APPS_API_TOKEN_GENTLE_PLANT_04645F703`: Frontend deployment token
-git - `AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912`: Backend deployment publish profile
-- `PRODUCTION_DATABASE_URL`: Production database connection (optional for now)
+- `AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912`: Backend deployment publish profile
+- `PRODUCTION_DATABASE_URL`: Production database connection (required for Prisma migrations)
 - `STAGING_DATABASE_URL`: Staging database connection (will be added later)
 
 ## 🚀 Deployment

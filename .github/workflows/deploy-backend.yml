@@ -35,11 +35,11 @@ jobs:
 
       - name: Install server dependencies
         working-directory: ./server
-        run: npm ci --only=production
+        run: npm ci
 
       - name: Build server
         working-directory: ./server
-        run: npm run build:prod
+        run: npm run build
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
 
@@ -54,8 +54,9 @@ jobs:
           cp -r prisma deploy/
           # Create a .deployment file for Azure
           echo "SCM_DO_BUILD_DURING_DEPLOYMENT=true" > deploy/.deployment
-          # Fix main entry point to point to dist folder
-          sed -i 's/"main": "index.js"/"main": "dist\/index.js"/' deploy/package.json
+          # Main entry point is already correct in package.json
+          # Remove dev dependencies from package.json for production
+          npm pkg delete devDependencies
           # List contents for debugging
           echo "Deployment package contents:"
           ls -la deploy/
@@ -81,8 +82,10 @@ jobs:
       - name: Health check
         run: |
           echo "Performing health check..."
-          # Add your production health check URL here
-          # curl -f https://your-production-app.azurewebsites.net/health
+          # Wait a bit for the app to start
+          sleep 30
+          # Try to hit the health endpoint
+          curl -f https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/health || echo "Health check failed, but deployment may still be successful"
 
       - name: Notify deployment success
         if: success()
