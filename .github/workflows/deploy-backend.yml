@@ -49,7 +49,6 @@ jobs:
           app-name: 'SMARTTASK-AI'
           slot-name: 'Production'
           package: ./server
-          startup-command: 'npm start'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
 
       - name: Run Prisma migrations

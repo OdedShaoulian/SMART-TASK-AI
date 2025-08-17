@@ -106,7 +106,7 @@ smart-task-ai/
 
 ### CI/CD Secrets
 - `AZURE_STATIC_WEB_APPS_API_TOKEN_GENTLE_PLANT_04645F703`: Frontend deployment token
-- `AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912`: Backend deployment publish profile
+git - `AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912`: Backend deployment publish profile
 - `PRODUCTION_DATABASE_URL`: Production database connection (optional for now)
 - `STAGING_DATABASE_URL`: Staging database connection (will be added later)
 
