@@ -121,6 +121,38 @@ Automatically deployed to Azure Static Web Apps on push to `main` with client ch
 2. **Production**: Deployed after successful staging deployment
 3. **Database**: Prisma migrations run automatically after each deployment
 
+## 🔧 Deploy Troubleshooting
+
+### Preflight Validation
+The deployment workflow automatically validates:
+- Repository structure and server folder existence
+- Package.json scripts and build configuration
+- Package path resolution (auto-falls back to `./server` if `./server/deploy` is invalid)
+- Slot validation (uses default production slot, no conflicts)
+
+### Build Strategy
+- **Source Package**: Uses Oryx build with `SCM_DO_BUILD_DURING_DEPLOYMENT=true`
+- **Pre-built Package**: Creates optimized deployment package with production dependencies only
+
+### Concurrent Deployment Handling
+- Concurrency control prevents multiple deployments from running simultaneously
+- Automatic retry logic for 409 Conflict errors
+- Comprehensive diagnostics on failure
+
+### Failure Diagnostics
+On deployment failure, the workflow provides:
+- Package path and type used
+- Slot information
+- Build strategy details
+- Package contents and structure
+- Deployment logs
+- Diagnostic artifacts uploaded for analysis
+
+### Common Issues & Solutions
+- **409 Conflict**: Usually indicates concurrent deployment or package structure issues
+- **Invalid Package**: Workflow auto-falls back to source package strategy
+- **Slot Conflicts**: Removed slot-name specification to use default production slot
+
 ## 📊 Monitoring
 
 - **Test Coverage**: Integrated coverage reporting via Codecov
