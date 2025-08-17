@@ -37,31 +37,88 @@ jobs:
         working-directory: ./server
         run: npm ci
 
+      - name: Clean build directory
+        working-directory: ./server
+        run: |
+          rm -rf dist
+          rm -rf deploy
+
       - name: Build server
         working-directory: ./server
         run: npm run build
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
 
+      - name: Generate Prisma client
+        working-directory: ./server
+        run: npm run db:generate
+
       - name: Prepare deployment package
         working-directory: ./server
         run: |
-          # Create a minimal deployment package
+          # Clean previous deployment package
+          rm -rf deploy
+          
+          # Create a clean deployment package
           mkdir -p deploy
+          
+          # Copy built application
           cp -r dist/* deploy/
+          
+          # Copy production dependencies
           cp package.json deploy/
           cp package-lock.json deploy/
+          
+          # Copy Prisma schema and migrations
           cp -r prisma deploy/
-          # Create a .deployment file for Azure
-          echo "SCM_DO_BUILD_DURING_DEPLOYMENT=true" > deploy/.deployment
-          # Main entry point is already correct in package.json
-          # Remove dev dependencies from package.json for production
+          
+          # Copy generated Prisma client
+          mkdir -p deploy/node_modules
+          cp -r node_modules/.prisma deploy/node_modules/
+          
+          # Create production package.json (remove dev dependencies and fix main entry)
+          cd deploy
           npm pkg delete devDependencies
-          # List contents for debugging
-          echo "Deployment package contents:"
-          ls -la deploy/
-          echo "Dist contents:"
-          ls -la dist/
+          npm pkg delete scripts
+          npm pkg set main="index.js"
+          npm pkg set scripts.start="node index.js"
+          
+          # Install only production dependencies
+          npm ci --only=production
+          
+          # Create .deployment file for Azure
+          echo "SCM_DO_BUILD_DURING_DEPLOYMENT=false" > .deployment
+          echo "WEBSITE_NODE_DEFAULT_VERSION=20" >> .deployment
+          
+          # Ensure proper file structure
+          echo "Verifying file structure:"
+          test -f index.js && echo "✅ index.js exists" || echo "❌ index.js missing"
+          test -f package.json && echo "✅ package.json exists" || echo "❌ package.json missing"
+          test -f prisma/schema.prisma && echo "✅ schema.prisma exists" || echo "❌ schema.prisma missing"
+          
+          # Verify deployment package
+          echo "=== DEPLOYMENT PACKAGE VERIFICATION ==="
+          echo "Package contents:"
+          ls -la
+          echo "Package.json:"
+          cat package.json
+          echo "Main entry: $(npm pkg get main)"
+          echo "Start script: $(npm pkg get scripts.start)"
+          echo "Package size: $(du -sh .)"
+          
+          cd ..
+          
+          # Final verification
+          echo "=== FINAL VERIFICATION ==="
+          echo "Deployment package ready in: $(pwd)/deploy"
+          echo "Total files: $(find deploy -type f | wc -l)"
+          echo "JavaScript files: $(find deploy -name '*.js' | wc -l)"
+          echo "Package size: $(du -sh deploy)"
+          echo "Key files:"
+          ls -la deploy/index.js deploy/package.json deploy/prisma/schema.prisma
+          echo "Package structure:"
+          find deploy -type f | head -20
+          echo "✅ Deployment package is ready for Azure!"
 
       - name: Deploy to Azure Web App - Production
         uses: azure/webapps-deploy@v3
@@ -75,6 +132,7 @@ jobs:
         working-directory: ./server
         run: |
           echo "Running Prisma migrations..."
+          echo "Database URL: ${{ secrets.PRODUCTION_DATABASE_URL }}"
           npm run db:migrate:deploy
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
@@ -82,10 +140,12 @@ jobs:
       - name: Health check
         run: |
           echo "Performing health check..."
-          # Wait a bit for the app to start
+          echo "Waiting for app to start..."
           sleep 30
+          echo "Attempting health check..."
           # Try to hit the health endpoint
           curl -f https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/health || echo "Health check failed, but deployment may still be successful"
+          echo "Health check completed"
 
       - name: Notify deployment success
         if: success()
