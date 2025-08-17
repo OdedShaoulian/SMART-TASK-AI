@@ -22,6 +22,27 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
+      # --- Debug workflow_run payload ---
+      - name: Debug workflow_run payload
+        run: |
+          echo "=== WORKFLOW_RUN DEBUG INFO ==="
+          echo "workflow_run.name=${{ github.event.workflow_run.name }}"
+          echo "workflow_run.head_branch=${{ github.event.workflow_run.head_branch }}"
+          echo "workflow_run.conclusion=${{ github.event.workflow_run.conclusion }}"
+          echo "workflow_run.status=${{ github.event.workflow_run.status }}"
+          echo "workflow_run.workflow_id=${{ github.event.workflow_run.workflow_id }}"
+          echo "Expected CI workflow name: CI"
+          echo "Actual workflow name: ${{ github.event.workflow_run.name }}"
+          if [ "${{ github.event.workflow_run.name }}" != "CI" ]; then
+            echo "❌ ERROR: Workflow name mismatch!"
+            echo "Expected: CI"
+            echo "Actual: ${{ github.event.workflow_run.name }}"
+            exit 1
+          fi
+          echo "✅ Workflow name matches correctly"
+          echo "Full payload:"
+          echo '${{ toJson(github.event.workflow_run) }}'
+
       # --- Install jq for JSON parsing ---
       - name: Install jq
         run: |

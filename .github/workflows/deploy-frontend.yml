@@ -1,0 +1,115 @@
+name: Deploy Frontend (Azure Static Web Apps, gated by CI)
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # --- Debug workflow_run payload ---
+      - name: Debug workflow_run payload
+        run: |
+          echo "=== WORKFLOW_RUN DEBUG INFO ==="
+          echo "workflow_run.name=${{ github.event.workflow_run.name }}"
+          echo "workflow_run.head_branch=${{ github.event.workflow_run.head_branch }}"
+          echo "workflow_run.conclusion=${{ github.event.workflow_run.conclusion }}"
+          echo "workflow_run.status=${{ github.event.workflow_run.status }}"
+          echo "workflow_run.workflow_id=${{ github.event.workflow_run.workflow_id }}"
+          echo "Expected CI workflow name: CI"
+          echo "Actual workflow name: ${{ github.event.workflow_run.name }}"
+          if [ "${{ github.event.workflow_run.name }}" != "CI" ]; then
+            echo "❌ ERROR: Workflow name mismatch!"
+            echo "Expected: CI"
+            echo "Actual: ${{ github.event.workflow_run.name }}"
+            exit 1
+          fi
+          echo "✅ Workflow name matches correctly"
+          echo "Full payload:"
+          echo '${{ toJson(github.event.workflow_run) }}'
+
+      # --- Preflight validation ---
+      - name: Preflight validation
+        run: |
+          echo "=== PREFLIGHT VALIDATION ==="
+          echo "Repo root:"
+          ls -la
+          test -d client || { echo "❌ Missing client/ folder"; exit 1; }
+          ls -la client
+          test -f client/package.json || { echo "❌ Missing client/package.json"; exit 1; }
+          echo "✅ Preflight validation passed"
+
+      # --- Setup Node.js ---
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+
+      # --- Install dependencies ---
+      - name: Install dependencies
+        working-directory: ./client
+        run: npm ci
+
+      # --- Build and Deploy to Azure Static Web Apps ---
+      - name: Build and Deploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_GENTLE_PLANT_04645F703 }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "./client"
+          api_location: ""
+          output_location: "dist"
+
+      # --- Success notification ---
+      - name: Notify deployment success
+        if: ${{ success() }}
+        run: |
+          echo "✅ Successfully deployed frontend to Azure Static Web Apps"
+          echo "Build mode: source (built during deployment)"
+          echo "Deployment completed successfully!"
+
+      # --- On failure, upload diagnostics ---
+      - name: Upload diagnostics on failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-deploy-diagnostics-${{ github.run_id }}
+          path: |
+            client/package.json
+            client/package-lock.json
+            client/
+          retention-days: 30
+
+      # --- Failure diagnostics ---
+      - name: Failure diagnostics
+        if: ${{ failure() }}
+        run: |
+          echo "=== FAILURE DIAGNOSTICS ==="
+          echo "1. Package path used: client"
+          echo "2. Build mode: source (built during deployment)"
+          echo "3. Azure Static Web Apps deployment failed"
+          echo "4. Client folder contents:"
+          ls -la client/
+          if [ -f "client/package.json" ]; then
+            echo "5. Package.json contents:"
+            cat client/package.json
+          fi
+          echo "❌ Frontend deployment failed - see diagnostics above for troubleshooting"
