@@ -1,6 +1,6 @@
 import express from 'express';
 import taskRoutes from './routes/taskRoutes.js';
-import { authMiddleware } from './middleware/authMiddleware.js';
+import { authenticateUser } from './middleware/authMiddleware.js';
 
 const app = express();
 
@@ -8,7 +8,7 @@ const app = express();
 app.use(express.json());
 
 // Auth middleware for all routes
-app.use(authMiddleware);
+app.use(authenticateUser);
 
 // Routes
 app.use('/api/tasks', taskRoutes);
