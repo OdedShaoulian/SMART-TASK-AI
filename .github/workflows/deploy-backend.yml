@@ -35,7 +35,7 @@ jobs:
 
       - name: Install server dependencies
         working-directory: ./server
-        run: npm ci
+        run: npm ci --only=production
 
       - name: Build server
         working-directory: ./server
@@ -46,14 +46,16 @@ jobs:
       - name: Prepare deployment package
         working-directory: ./server
         run: |
-          # Create a clean deployment package
+          # Create a minimal deployment package
           mkdir -p deploy
           cp -r dist/* deploy/
-          cp package*.json deploy/
-          cp -r node_modules deploy/
+          cp package.json deploy/
+          cp package-lock.json deploy/
           cp -r prisma deploy/
           # Create a .deployment file for Azure
-          echo "SCM_DO_BUILD_DURING_DEPLOYMENT=false" > deploy/.deployment
+          echo "SCM_DO_BUILD_DURING_DEPLOYMENT=true" > deploy/.deployment
+          # Fix main entry point to point to dist folder
+          sed -i 's/"main": "index.js"/"main": "dist\/index.js"/' deploy/package.json
           # List contents for debugging
           echo "Deployment package contents:"
           ls -la deploy/
