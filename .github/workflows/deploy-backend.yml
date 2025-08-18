@@ -237,7 +237,9 @@ jobs:
           sleep 30
           echo "✅ Ready for deployment"
 
-      # --- First deploy attempt (no slot-name!) ---
+
+
+      # --- First deploy attempt ---
       - name: Deploy to Azure Web App (attempt 1)
         id: deploy1
         uses: azure/webapps-deploy@v3
@@ -246,22 +248,43 @@ jobs:
           app-name: SMARTTASK-AI
           package: ${{ steps.pkg.outputs.pkg }}
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
+          startup-command: "npm start"
 
-      # --- If first attempt failed, wait and retry once ---
+      # --- If first attempt failed, wait longer and retry ---
       - name: Wait before retry if first attempt failed
         if: ${{ steps.deploy1.outcome == 'failure' }}
         run: |
-          echo "First deployment failed. Waiting 60 seconds before retry..."
-          sleep 60
+          echo "First deployment failed. Waiting 120 seconds before retry..."
+          sleep 120
           echo "✅ Ready for retry"
 
       - name: Deploy to Azure Web App (attempt 2)
+        id: deploy2
         if: ${{ steps.deploy1.outcome == 'failure' }}
+        uses: azure/webapps-deploy@v3
+        continue-on-error: true
+        with:
+          app-name: SMARTTASK-AI
+          package: ${{ steps.pkg.outputs.pkg }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
+          startup-command: "npm start"
+
+      # --- Final retry with longer wait ---
+      - name: Wait before final retry
+        if: ${{ steps.deploy1.outcome == 'failure' && steps.deploy2.outcome == 'failure' }}
+        run: |
+          echo "Second deployment also failed. Waiting 180 seconds before final retry..."
+          sleep 180
+          echo "✅ Ready for final retry"
+
+      - name: Deploy to Azure Web App (final attempt)
+        if: ${{ steps.deploy1.outcome == 'failure' && steps.deploy2.outcome == 'failure' }}
         uses: azure/webapps-deploy@v3
         with:
           app-name: SMARTTASK-AI
           package: ${{ steps.pkg.outputs.pkg }}
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
+          startup-command: "npm start"
 
       # --- Prisma migrations after successful deployment ---
       - name: Run Prisma migrations
