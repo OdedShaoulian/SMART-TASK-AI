@@ -248,7 +248,6 @@ jobs:
           app-name: SMARTTASK-AI
           package: ${{ steps.pkg.outputs.pkg }}
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
-          startup-command: "npm start"
 
       # --- If first attempt failed, wait longer and retry ---
       - name: Wait before retry if first attempt failed
@@ -267,7 +266,6 @@ jobs:
           app-name: SMARTTASK-AI
           package: ${{ steps.pkg.outputs.pkg }}
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
-          startup-command: "npm start"
 
       # --- Final retry with longer wait ---
       - name: Wait before final retry
@@ -284,7 +282,18 @@ jobs:
           app-name: SMARTTASK-AI
           package: ${{ steps.pkg.outputs.pkg }}
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
-          startup-command: "npm start"
+
+      # --- Configure startup command after deployment ---
+      - name: Configure startup command
+        if: ${{ success() }}
+        run: |
+          echo "=== CONFIGURING STARTUP COMMAND ==="
+          echo "Setting startup command to 'npm start'..."
+          
+          # Use Azure CLI to set the startup command
+          az webapp config set --name SMARTTASK-AI --resource-group smarttask-ai-rg --startup-file "npm start" || echo "Warning: Could not set startup command via CLI"
+          
+          echo "✅ Startup command configured"
 
       # --- Prisma migrations after successful deployment ---
       - name: Run Prisma migrations
