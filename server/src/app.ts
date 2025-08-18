@@ -1,6 +1,6 @@
 import express from 'express';
-import taskRoutes from './routes/taskRoutes';
-import { authenticateUser } from './middleware/authMiddleware';
+import taskRoutes from './routes/taskRoutes.js';
+import { authenticateUser } from './middleware/authMiddleware.js';
 
 const app = express();
 

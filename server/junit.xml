@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="60" failures="0" errors="0" time="0.702">
+  <testsuite name="TaskController" errors="0" failures="0" skipped="0" timestamp="2025-08-18T10:13:57" time="0.185" tests="25">
+    <testcase classname="TaskController getUserTasks should return user tasks successfully" name="TaskController getUserTasks should return user tasks successfully" time="0.002">
+    </testcase>
+    <testcase classname="TaskController getUserTasks should handle errors when getting user tasks" name="TaskController getUserTasks should handle errors when getting user tasks" time="0.033">
+    </testcase>
+    <testcase classname="TaskController getTaskById should return task by id successfully" name="TaskController getTaskById should return task by id successfully" time="0.001">
+    </testcase>
+    <testcase classname="TaskController getTaskById should return 400 when taskId is missing" name="TaskController getTaskById should return 400 when taskId is missing" time="0">
+    </testcase>
+    <testcase classname="TaskController getTaskById should return 404 when task is not found" name="TaskController getTaskById should return 404 when task is not found" time="0">
+    </testcase>
+    <testcase classname="TaskController createTask should create task successfully" name="TaskController createTask should create task successfully" time="0">
+    </testcase>
+    <testcase classname="TaskController createTask should return 400 when title is missing" name="TaskController createTask should return 400 when title is missing" time="0.001">
+    </testcase>
+    <testcase classname="TaskController createTask should return 400 when title is empty string" name="TaskController createTask should return 400 when title is empty string" time="0">
+    </testcase>
+    <testcase classname="TaskController createTask should trim whitespace from title" name="TaskController createTask should trim whitespace from title" time="0.001">
+    </testcase>
+    <testcase classname="TaskController updateTask should update task successfully" name="TaskController updateTask should update task successfully" time="0">
+    </testcase>
+    <testcase classname="TaskController updateTask should return 400 when taskId is missing" name="TaskController updateTask should return 400 when taskId is missing" time="0">
+    </testcase>
+    <testcase classname="TaskController updateTask should return 404 when task is not found" name="TaskController updateTask should return 404 when task is not found" time="0">
+    </testcase>
+    <testcase classname="TaskController deleteTask should delete task successfully" name="TaskController deleteTask should delete task successfully" time="0">
+    </testcase>
+    <testcase classname="TaskController deleteTask should return 400 when taskId is missing" name="TaskController deleteTask should return 400 when taskId is missing" time="0.001">
+    </testcase>
+    <testcase classname="TaskController deleteTask should return 404 when task is not found" name="TaskController deleteTask should return 404 when task is not found" time="0">
+    </testcase>
+    <testcase classname="TaskController createSubtask should create subtask successfully" name="TaskController createSubtask should create subtask successfully" time="0">
+    </testcase>
+    <testcase classname="TaskController createSubtask should return 400 when taskId is missing" name="TaskController createSubtask should return 400 when taskId is missing" time="0">
+    </testcase>
+    <testcase classname="TaskController createSubtask should return 400 when title is missing" name="TaskController createSubtask should return 400 when title is missing" time="0">
+    </testcase>
+    <testcase classname="TaskController createSubtask should return 404 when parent task is not found" name="TaskController createSubtask should return 404 when parent task is not found" time="0.004">
+    </testcase>
+    <testcase classname="TaskController updateSubtask should update subtask successfully" name="TaskController updateSubtask should update subtask successfully" time="0.001">
+    </testcase>
+    <testcase classname="TaskController updateSubtask should return 400 when subtaskId is missing" name="TaskController updateSubtask should return 400 when subtaskId is missing" time="0.001">
+    </testcase>
+    <testcase classname="TaskController updateSubtask should return 404 when subtask is not found" name="TaskController updateSubtask should return 404 when subtask is not found" time="0">
+    </testcase>
+    <testcase classname="TaskController deleteSubtask should delete subtask successfully" name="TaskController deleteSubtask should delete subtask successfully" time="0.001">
+    </testcase>
+    <testcase classname="TaskController deleteSubtask should return 400 when subtaskId is missing" name="TaskController deleteSubtask should return 400 when subtaskId is missing" time="0">
+    </testcase>
+    <testcase classname="TaskController deleteSubtask should return 404 when subtask is not found" name="TaskController deleteSubtask should return 404 when subtask is not found" time="0.001">
+    </testcase>
+  </testsuite>
+  <testsuite name="Task API Endpoints" errors="0" failures="0" skipped="0" timestamp="2025-08-18T10:13:57" time="0.229" tests="18">
+    <testcase classname="Task API Endpoints GET /api/tasks should return 401 when no user ID is provided" name="Task API Endpoints GET /api/tasks should return 401 when no user ID is provided" time="0.02">
+    </testcase>
+    <testcase classname="Task API Endpoints GET /api/tasks should return empty array when user ID is provided" name="Task API Endpoints GET /api/tasks should return empty array when user ID is provided" time="0.004">
+    </testcase>
+    <testcase classname="Task API Endpoints POST /api/tasks should return 401 when no user ID is provided" name="Task API Endpoints POST /api/tasks should return 401 when no user ID is provided" time="0.009">
+    </testcase>
+    <testcase classname="Task API Endpoints POST /api/tasks should return 400 when title is missing" name="Task API Endpoints POST /api/tasks should return 400 when title is missing" time="0.004">
+    </testcase>
+    <testcase classname="Task API Endpoints POST /api/tasks should return 400 when title is empty" name="Task API Endpoints POST /api/tasks should return 400 when title is empty" time="0.003">
+    </testcase>
+    <testcase classname="Task API Endpoints POST /api/tasks should create task successfully" name="Task API Endpoints POST /api/tasks should create task successfully" time="0.003">
+    </testcase>
+    <testcase classname="Task API Endpoints GET /api/tasks/:taskId should return 400 when taskId is invalid" name="Task API Endpoints GET /api/tasks/:taskId should return 400 when taskId is invalid" time="0.002">
+    </testcase>
+    <testcase classname="Task API Endpoints GET /api/tasks/:taskId should return task when found" name="Task API Endpoints GET /api/tasks/:taskId should return task when found" time="0.002">
+    </testcase>
+    <testcase classname="Task API Endpoints PUT /api/tasks/:taskId should return 400 when taskId is invalid" name="Task API Endpoints PUT /api/tasks/:taskId should return 400 when taskId is invalid" time="0.004">
+    </testcase>
+    <testcase classname="Task API Endpoints PUT /api/tasks/:taskId should update task successfully" name="Task API Endpoints PUT /api/tasks/:taskId should update task successfully" time="0.003">
+    </testcase>
+    <testcase classname="Task API Endpoints DELETE /api/tasks/:taskId should return 404 when taskId is invalid" name="Task API Endpoints DELETE /api/tasks/:taskId should return 404 when taskId is invalid" time="0.002">
+    </testcase>
+    <testcase classname="Task API Endpoints DELETE /api/tasks/:taskId should delete task successfully" name="Task API Endpoints DELETE /api/tasks/:taskId should delete task successfully" time="0.001">
+    </testcase>
+    <testcase classname="Task API Endpoints POST /api/tasks/:taskId/subtasks should return 400 when title is missing" name="Task API Endpoints POST /api/tasks/:taskId/subtasks should return 400 when title is missing" time="0.002">
+    </testcase>
+    <testcase classname="Task API Endpoints POST /api/tasks/:taskId/subtasks should create subtask successfully" name="Task API Endpoints POST /api/tasks/:taskId/subtasks should create subtask successfully" time="0.002">
+    </testcase>
+    <testcase classname="Task API Endpoints PUT /api/tasks/subtasks/:subtaskId should return 404 when subtaskId is invalid" name="Task API Endpoints PUT /api/tasks/subtasks/:subtaskId should return 404 when subtaskId is invalid" time="0.002">
+    </testcase>
+    <testcase classname="Task API Endpoints PUT /api/tasks/subtasks/:subtaskId should update subtask successfully" name="Task API Endpoints PUT /api/tasks/subtasks/:subtaskId should update subtask successfully" time="0.002">
+    </testcase>
+    <testcase classname="Task API Endpoints DELETE /api/tasks/subtasks/:subtaskId should return 404 when subtaskId is invalid" name="Task API Endpoints DELETE /api/tasks/subtasks/:subtaskId should return 404 when subtaskId is invalid" time="0.004">
+    </testcase>
+    <testcase classname="Task API Endpoints DELETE /api/tasks/subtasks/:subtaskId should delete subtask successfully" name="Task API Endpoints DELETE /api/tasks/subtasks/:subtaskId should delete subtask successfully" time="0.001">
+    </testcase>
+  </testsuite>
+  <testsuite name="TaskService" errors="0" failures="0" skipped="0" timestamp="2025-08-18T10:13:57" time="0.049" tests="17">
+    <testcase classname="TaskService getUserTasks should return user tasks successfully" name="TaskService getUserTasks should return user tasks successfully" time="0.001">
+    </testcase>
+    <testcase classname="TaskService getUserTasks should handle database errors" name="TaskService getUserTasks should handle database errors" time="0.012">
+    </testcase>
+    <testcase classname="TaskService getTaskById should return task by id successfully" name="TaskService getTaskById should return task by id successfully" time="0.001">
+    </testcase>
+    <testcase classname="TaskService getTaskById should return null when task not found" name="TaskService getTaskById should return null when task not found" time="0">
+    </testcase>
+    <testcase classname="TaskService createTask should create task successfully" name="TaskService createTask should create task successfully" time="0.001">
+    </testcase>
+    <testcase classname="TaskService createTask should handle database errors during creation" name="TaskService createTask should handle database errors during creation" time="0.002">
+    </testcase>
+    <testcase classname="TaskService updateTask should update task successfully" name="TaskService updateTask should update task successfully" time="0.001">
+    </testcase>
+    <testcase classname="TaskService updateTask should return null when task not found" name="TaskService updateTask should return null when task not found" time="0">
+    </testcase>
+    <testcase classname="TaskService deleteTask should delete task successfully" name="TaskService deleteTask should delete task successfully" time="0.001">
+    </testcase>
+    <testcase classname="TaskService deleteTask should return false when task not found" name="TaskService deleteTask should return false when task not found" time="0">
+    </testcase>
+    <testcase classname="TaskService createSubtask should create subtask successfully" name="TaskService createSubtask should create subtask successfully" time="0.001">
+    </testcase>
+    <testcase classname="TaskService createSubtask should throw error when parent task not found" name="TaskService createSubtask should throw error when parent task not found" time="0.003">
+    </testcase>
+    <testcase classname="TaskService updateSubtask should update subtask successfully" name="TaskService updateSubtask should update subtask successfully" time="0.001">
+    </testcase>
+    <testcase classname="TaskService updateSubtask should return null when subtask not found" name="TaskService updateSubtask should return null when subtask not found" time="0">
+    </testcase>
+    <testcase classname="TaskService updateSubtask should return null when subtask belongs to different user" name="TaskService updateSubtask should return null when subtask belongs to different user" time="0">
+    </testcase>
+    <testcase classname="TaskService deleteSubtask should delete subtask successfully" name="TaskService deleteSubtask should delete subtask successfully" time="0">
+    </testcase>
+    <testcase classname="TaskService deleteSubtask should return false when subtask not found" name="TaskService deleteSubtask should return false when subtask not found" time="0">
+    </testcase>
+  </testsuite>
+</testsuites>

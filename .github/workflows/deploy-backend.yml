@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: deployment-${{ github.ref }}
-  cancel-in-progress: true
+  group: smarttask-ai-prod
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -22,415 +22,58 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      # --- Debug workflow_run payload ---
-      - name: Debug workflow_run payload
+      # --- Verify package.json exists ---
+      - name: Verify package.json
         run: |
-          echo "=== WORKFLOW_RUN DEBUG INFO ==="
-          echo "workflow_run.name=${{ github.event.workflow_run.name }}"
-          echo "workflow_run.head_branch=${{ github.event.workflow_run.head_branch }}"
-          echo "workflow_run.conclusion=${{ github.event.workflow_run.conclusion }}"
-          echo "workflow_run.status=${{ github.event.workflow_run.status }}"
-          echo "workflow_run.workflow_id=${{ github.event.workflow_run.workflow_id }}"
-          echo "Expected CI workflow name: CI"
-          echo "Actual workflow name: ${{ github.event.workflow_run.name }}"
-          if [ "${{ github.event.workflow_run.name }}" != "CI" ]; then
-            echo "❌ ERROR: Workflow name mismatch!"
-            echo "Expected: CI"
-            echo "Actual: ${{ github.event.workflow_run.name }}"
-            exit 1
-          fi
-          echo "✅ Workflow name matches correctly"
-          echo "Full payload:"
-          echo '${{ toJson(github.event.workflow_run) }}'
+          test -f server/package.json || (echo "Missing server/package.json" && exit 1)
+          echo "✅ package.json verified"
 
-      # --- Install jq for JSON parsing ---
-      - name: Install jq
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-          echo "✅ jq installed"
-
-      # --- Preflight: verify structure and resolve package path ---
-      - name: Preflight package path
-        id: pkg
-        shell: bash
-        run: |
-          set -e
-          echo "Repo root:"
-          ls -la
-          test -d server || { echo "❌ Missing server/ folder"; exit 1; }
-          ls -la server
-          test -f server/package.json || { echo "❌ Missing server/package.json"; exit 1; }
-
-          # Prefer a prebuilt bundle if present and non-empty; else use server/
-          if [ -d "./server/deploy" ] && [ "$(find ./server/deploy -type f | wc -l)" -gt 0 ]; then
-            PKG="./server/deploy"
-            echo "Using prebuilt package: $PKG"
-          else
-            PKG="server"
-            echo "Using source package: $PKG"
-          fi
-          echo "Resolved package path: $PKG"
-          echo "pkg=$PKG" >> "$GITHUB_OUTPUT"
-
-      # --- Build server (required for both strategies) ---
-      - name: Build server
+      # --- Ensure Oryx will build on Azure (source deployment only) ---
+      - name: Ensure .deployment for Oryx build
         working-directory: server
         run: |
-          echo "Building server..."
-          npm ci
-          npm run build
-          npm run db:generate
-          echo "✅ Build completed"
-
-      # --- Create deployment package if using prebuilt strategy ---
-      - name: Create deployment package
-        if: steps.pkg.outputs.pkg == './server/deploy'
-        working-directory: server
-        run: |
-          echo "Creating optimized deployment package..."
-          
-          # Clean previous deployment package
-          rm -rf deploy
-          
-          # Create a clean deployment package
-          mkdir -p deploy
-          
-          # Copy built application
-          cp -r dist/* deploy/
-          
-          # Copy production dependencies
-          cp package.json deploy/
-          cp package-lock.json deploy/
-          
-          # Copy Prisma schema and migrations
-          cp -r prisma deploy/
-          
-          # Create production package.json (remove dev dependencies and fix main entry)
-          cd deploy
-          npm pkg delete devDependencies
-          npm pkg delete scripts
-          npm pkg set main="index.js"
-          npm pkg set scripts.start="node index.js"
-          
-          # Install only production dependencies
-          npm ci --only=production
-          
-          # Create .deployment file for Azure
-          echo "SCM_DO_BUILD_DURING_DEPLOYMENT=false" > .deployment
-          echo "WEBSITE_NODE_DEFAULT_VERSION=20" >> .deployment
-          echo "WEBSITE_RUN_FROM_PACKAGE=1" >> .deployment
-          
-          # Create web.config for Azure
-          echo '<?xml version="1.0" encoding="utf-8"?>' > web.config
-          echo '<configuration>' >> web.config
-          echo '  <system.webServer>' >> web.config
-          echo '    <handlers>' >> web.config
-          echo '      <add name="iisnode" path="index.js" verb="*" modules="iisnode" />' >> web.config
-          echo '    </handlers>' >> web.config
-          echo '    <rewrite>' >> web.config
-          echo '      <rules>' >> web.config
-          echo '        <rule name="NodeInspector" patternSyntax="ECMAScript" stopProcessing="true">' >> web.config
-          echo '          <match url="^index.js\/debug[\/]?" />' >> web.config
-          echo '        </rule>' >> web.config
-          echo '        <rule name="StaticContent">' >> web.config
-          echo '          <action type="Rewrite" url="index.js" />' >> web.config
-          echo '        </rule>' >> web.config
-          echo '      </rules>' >> web.config
-          echo '    </rewrite>' >> web.config
-          echo '    <defaultDocument>' >> web.config
-          echo '      <files>' >> web.config
-          echo '        <add value="index.js" />' >> web.config
-          echo '      </files>' >> web.config
-          echo '    </defaultDocument>' >> web.config
-          echo '  </system.webServer>' >> web.config
-          echo '</configuration>' >> web.config
-          
-          cd ..
-          
-          echo "✅ Deployment package created successfully"
-          echo "Package contents:"
-          ls -la deploy/
-          echo "Package size:"
-          du -sh deploy
-
-
-
-      # --- Create Azure configuration for source package ---
-      - name: Create Azure configuration
-        if: steps.pkg.outputs.pkg == 'server'
-        working-directory: server
-        run: |
-          echo "Creating Azure configuration files..."
-          
-          # Create .deployment file for Azure
+          echo "=== CONFIGURING FOR ORYX BUILD ==="
+          # IMPORTANT: Do NOT set WEBSITE_RUN_FROM_PACKAGE anywhere
           echo "SCM_DO_BUILD_DURING_DEPLOYMENT=true" > .deployment
           echo "WEBSITE_NODE_DEFAULT_VERSION=20" >> .deployment
-          
-          # Create web.config for Azure
-          echo '<?xml version="1.0" encoding="utf-8"?>' > web.config
-          echo '<configuration>' >> web.config
-          echo '  <system.webServer>' >> web.config
-          echo '    <handlers>' >> web.config
-          echo '      <add name="iisnode" path="dist/index.js" verb="*" modules="iisnode" />' >> web.config
-          echo '    </handlers>' >> web.config
-          echo '    <rewrite>' >> web.config
-          echo '      <rules>' >> web.config
-          echo '        <rule name="NodeInspector" patternSyntax="ECMAScript" stopProcessing="true">' >> web.config
-          echo '          <match url="^dist\/index.js\/debug[\/]?" />' >> web.config
-          echo '        </rule>' >> web.config
-          echo '        <rule name="StaticContent">' >> web.config
-          echo '          <action type="Rewrite" url="dist/index.js" />' >> web.config
-          echo '        </rule>' >> web.config
-          echo '      </rules>' >> web.config
-          echo '    </rewrite>' >> web.config
-          echo '    <defaultDocument>' >> web.config
-          echo '      <files>' >> web.config
-          echo '        <add value="dist/index.js" />' >> web.config
-          echo '      </files>' >> web.config
-          echo '    </defaultDocument>' >> web.config
-          echo '  </system.webServer>' >> web.config
-          echo '</configuration>' >> web.config
-          
-          echo "✅ Azure configuration files created"
-          echo "Files created:"
-          ls -la .deployment web.config
+          # Linux App Service doesn't need web.config when using Oryx + npm start
+          echo "✅ .deployment configured for Oryx build"
 
-      # --- Final package validation ---
-      - name: Final package validation
-        run: |
-          echo "=== FINAL PACKAGE VALIDATION ==="
-          echo "Package path: ${{ steps.pkg.outputs.pkg }}"
-          echo "Build mode: ${{ steps.pkg.outputs.pkg == 'server' && 'source' || 'prebuilt' }}"
-          
-          if [ -d "${{ steps.pkg.outputs.pkg }}" ]; then
-            echo "Package contents:"
-            ls -la "${{ steps.pkg.outputs.pkg }}"
-            
-            if [ -f "${{ steps.pkg.outputs.pkg }}/package.json" ]; then
-              echo "Package.json contents:"
-              cat "${{ steps.pkg.outputs.pkg }}/package.json"
-            fi
-            
-            echo "Package size:"
-            du -sh "${{ steps.pkg.outputs.pkg }}"
-          else
-            echo "❌ ERROR: Package directory does not exist"
-            exit 1
-          fi
-          
-          echo "✅ Package validation completed"
-
-
-
-      # --- Check Azure App Service Status (Optional) ---
-      - name: Check App Service Status
-        run: |
-          echo "=== CHECKING AZURE APP SERVICE STATUS ==="
-          echo "Note: Using publish profile authentication - Azure CLI status check skipped"
-          echo "✅ Proceeding with deployment using publish profile"
-        continue-on-error: true
-
-
-
-      # --- Debug package before deployment ---
-      - name: Debug package before deployment
-        run: |
-          echo "=== DEBUG PACKAGE BEFORE DEPLOYMENT ==="
-          echo "Package path: ${{ steps.pkg.outputs.pkg }}"
-          echo "Current directory: $(pwd)"
-          
-          if [ -d "${{ steps.pkg.outputs.pkg }}" ]; then
-            echo "✅ Package directory exists"
-            echo "Package contents:"
-            ls -la "${{ steps.pkg.outputs.pkg }}"
-            
-            if [ -f "${{ steps.pkg.outputs.pkg }}/package.json" ]; then
-              echo "✅ package.json exists"
-              echo "Package.json contents:"
-              cat "${{ steps.pkg.outputs.pkg }}/package.json"
-            else
-              echo "❌ package.json missing"
-            fi
-            
-            if [ -f "${{ steps.pkg.outputs.pkg }}/web.config" ]; then
-              echo "✅ web.config exists"
-            else
-              echo "❌ web.config missing"
-            fi
-            
-            if [ -f "${{ steps.pkg.outputs.pkg }}/.deployment" ]; then
-              echo "✅ .deployment exists"
-              echo ".deployment contents:"
-              cat "${{ steps.pkg.outputs.pkg }}/.deployment"
-            else
-              echo "❌ .deployment missing"
-            fi
-            
-            echo "Package size:"
-            du -sh "${{ steps.pkg.outputs.pkg }}"
-          else
-            echo "❌ Package directory does not exist"
-            exit 1
-          fi
-          
-          echo "=== PUBLISH PROFILE DEBUG ==="
-          if [ -n "${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}" ]; then
-            echo "✅ Publish profile secret is set"
-            echo "Publish profile length: ${#AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912}"
-          else
-            echo "❌ Publish profile secret is NOT set"
-          fi
-
-      # --- First deploy attempt with detailed error capture ---
-      - name: Deploy to Azure Web App (attempt 1)
-        id: deploy1
-        uses: azure/webapps-deploy@v3
-        continue-on-error: true
+      # --- Azure Login ---
+      - name: Azure Login
+        uses: azure/login@v2
         with:
-          app-name: SMARTTASK-AI
-          package: ${{ steps.pkg.outputs.pkg }}
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
 
-      # --- Analyze deployment result ---
-      - name: Analyze deployment result
-        if: ${{ always() }}
+      # --- Stop App Service (release file locks) ---
+      - name: Stop App Service
         run: |
-          echo "=== DEPLOYMENT ANALYSIS ==="
-          echo "Deployment outcome: ${{ steps.deploy1.outcome }}"
-          
-          if [[ "${{ steps.deploy1.outcome }}" == "success" ]]; then
-            echo "✅ Deployment succeeded!"
-          else
-            echo "❌ DEPLOYMENT FAILED"
-            echo ""
-            echo "=== TROUBLESHOOTING GUIDE ==="
-            echo "1. Check Azure Portal for App Service status"
-            echo "2. Verify publish profile is correct and not expired"
-            echo "3. Check if App Service is running and accessible"
-            echo "4. Verify app name 'SMARTTASK-AI' exists in Azure"
-            echo "5. Check resource group permissions"
-            echo "6. Verify package format is compatible with App Service"
-            echo ""
-            echo "=== NEXT STEPS ==="
-            echo "1. Check Azure Portal > App Service > Deployment Center"
-            echo "2. Look for deployment logs in Kudu"
-            echo "3. Verify publish profile in Azure Portal"
-            echo "4. Check App Service configuration"
-          fi
+          echo "=== STOPPING APP SERVICE ==="
+          az webapp stop --name SMARTTASK-AI --resource-group smarttask-ai-rg
+          echo "✅ App Service stopped"
 
-      # --- Configure startup command after deployment ---
-      - name: Configure startup command
-        if: ${{ success() }}
+      # --- Deploy to Azure Web App (source folder) ---
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: SMARTTASK-AI
+          package: server
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
+
+      # --- Start App Service ---
+      - name: Start App Service
+        if: always()
         run: |
-          echo "=== CONFIGURING STARTUP COMMAND ==="
-          echo "Note: Startup command configuration skipped - using web.config instead"
-          echo "✅ Startup command will be handled by web.config"
+          echo "=== STARTING APP SERVICE ==="
+          az webapp start --name SMARTTASK-AI --resource-group smarttask-ai-rg
+          echo "✅ App Service started"
 
-      # --- Prisma migrations after successful deployment ---
-      - name: Run Prisma migrations
-        if: ${{ success() }}
-        working-directory: ./server
-        run: |
-          echo "=== PRISMA MIGRATIONS ==="
-          echo "Running Prisma migrations..."
-          echo "Database URL: ${{ secrets.PRODUCTION_DATABASE_URL }}"
-          
-          # Install dependencies if needed
-          if [ ! -d "node_modules" ]; then
-            npm ci
-          fi
-          
-          npm run db:migrate:deploy
-          echo "✅ Prisma migrations completed"
-        env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-
-      # --- Health check after successful deployment ---
+      # --- Health check ---
       - name: Health check
-        if: ${{ success() }}
         run: |
           echo "=== HEALTH CHECK ==="
           echo "Waiting for app to start..."
           sleep 30
-          
           echo "Attempting health check..."
-          # Try to hit the health endpoint
-          curl -f https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/health || echo "Health check failed, but deployment may still be successful"
-          echo "Health check completed"
-
-      # --- Success notification ---
-      - name: Notify deployment success
-        if: ${{ success() }}
-        run: |
-          echo "✅ Successfully deployed to production"
-          echo "Package used: ${{ steps.pkg.outputs.pkg }}"
-          echo "Build mode: ${{ steps.pkg.outputs.pkg == 'server' && 'source' || 'prebuilt' }}"
-          echo "Slot used: default (production)"
-          echo "Deployment completed successfully!"
-
-      # --- On failure, upload diagnostics ---
-      - name: Upload diagnostics on failure
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-deploy-diagnostics-${{ github.run_id }}
-          path: |
-            server/package.json
-            server/package-lock.json
-            server/
-            ${{ steps.pkg.outputs.pkg }}/
-          retention-days: 30
-
-      # --- Capture deployment logs ---
-      - name: Capture deployment logs
-        if: ${{ always() }}
-        run: |
-          echo "=== DEPLOYMENT LOGS CAPTURE ==="
-          echo "This step captures any available deployment information"
-          echo "Check the GitHub Actions logs for detailed error messages"
-          echo "Look for 'Deploy to Azure Web App' step output"
-          echo ""
-          echo "Common 409 Conflict causes:"
-          echo "1. Another deployment is currently running"
-          echo "2. App Service is in a transitional state"
-          echo "3. Package format is incompatible"
-          echo "4. Publish profile has insufficient permissions"
-          echo ""
-          echo "To debug further:"
-          echo "1. Check Azure Portal > App Service > Deployment Center"
-          echo "2. Look at the deployment history"
-          echo "3. Check if there are any ongoing deployments"
-          echo "4. Verify the App Service is running and healthy"
-
-      # --- Failure diagnostics ---
-      - name: Failure diagnostics
-        if: ${{ failure() }}
-        run: |
-          echo "=== FAILURE DIAGNOSTICS ==="
-          
-          # 1. Package path used
-          echo "1. Package path used: ${{ steps.pkg.outputs.pkg }}"
-          
-          # 2. Build mode
-          echo "2. Build mode: ${{ steps.pkg.outputs.pkg == 'server' && 'source' || 'prebuilt' }}"
-          
-          # 3. Slot information
-          echo "3. Slot used: default (production) - no slot-name specified"
-          
-          # 4. Package contents (if available)
-          if [ -d "${{ steps.pkg.outputs.pkg }}" ]; then
-            echo "4. Package contents:"
-            ls -la "${{ steps.pkg.outputs.pkg }}"
-            
-            if [ -f "${{ steps.pkg.outputs.pkg }}/package.json" ]; then
-              echo "5. Package.json contents:"
-              cat "${{ steps.pkg.outputs.pkg }}/package.json"
-            fi
-          fi
-          
-          # 5. Deployment status (simplified)
-          echo "6. Deployment failed - check Azure Portal for details"
-          echo "7. Verify publish profile is correctly configured"
-          
-          echo "❌ Deployment failed - see diagnostics above for troubleshooting"
+          curl -f https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/health || exit 1
+          echo "✅ Health check passed"
