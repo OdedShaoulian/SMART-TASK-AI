@@ -20,4 +20,11 @@ export default tseslint.config([
       globals: globals.browser,
     },
   },
+  {
+    files: ['**/__tests__/**/*.{ts,tsx}', '**/*.(test|spec).{ts,tsx}', '**/tests/**/*.{ts,tsx}', '**/test/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+    },
+  },
 ])

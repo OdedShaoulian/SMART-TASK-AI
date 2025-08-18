@@ -4,7 +4,7 @@ const config: Config = {
   testEnvironment: 'node',
   verbose: true,
   roots: ['<rootDir>/src', '<rootDir>/tests'],
-  setupFiles: ['<rootDir>/tests/jest.setup.ts'],
+  setupFilesAfterEnv: ['<rootDir>/tests/jest.setup.js'],
   testPathIgnorePatterns: ['<rootDir>/dist/'],
   transform: {
     '^.+\\.(t|j)sx?$': ['ts-jest', { 
@@ -13,14 +13,6 @@ const config: Config = {
   },
   reporters: [
     'default',
-    ['jest-junit', { 
-      outputDirectory: '<rootDir>/reports/junit', 
-      outputName: 'junit.xml',
-      classNameTemplate: '{classname}',
-      titleTemplate: '{title}',
-      ancestorSeparator: ' › ',
-      usePathForSuiteName: true
-    }],
   ],
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',

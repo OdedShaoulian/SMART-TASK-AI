@@ -13,10 +13,10 @@ export default defineConfig({
       reporter: ['text', 'json', 'html', 'lcov'],
       reportsDirectory: './coverage',
     },
-    reporters: ['default', 'vitest-junit'],
-    outputFile: {
-      'vitest-junit': './reports/junit/junit.xml',
-    },
+    reporters: [
+      'default',
+      ['junit', { outputFile: 'reports/junit/junit.xml' }],
+    ],
   },
   resolve: {
     alias: {

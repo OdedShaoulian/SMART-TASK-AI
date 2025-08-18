@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { TaskController } from '../controllers/taskController.js';
-import { TaskService } from '../services/taskService.js';
+import { TaskController } from '../controllers/taskController';
+import { TaskService } from '../services/taskService';
 
 const router = Router();
 

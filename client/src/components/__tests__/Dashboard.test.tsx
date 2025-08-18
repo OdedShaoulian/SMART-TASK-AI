@@ -4,11 +4,21 @@ import '@testing-library/jest-dom';
 import { BrowserRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import Dashboard from '../Dashboard';
-import { apiService } from '../../services/api';
 import type { Task } from '../../types';
 
-// Mock the API service
-const mockApiService = apiService as any;
+// Mock the API service module
+vi.mock('../../services/api', () => ({
+  apiService: {
+    getTasks: vi.fn(),
+    getTask: vi.fn(),
+    createTask: vi.fn(),
+    updateTask: vi.fn(),
+    deleteTask: vi.fn(),
+    createSubtask: vi.fn(),
+    updateSubtask: vi.fn(),
+    deleteSubtask: vi.fn(),
+  },
+}));
 
 // Wrapper component to provide router context
 const renderWithRouter = (component: React.ReactElement) => {
@@ -26,7 +36,8 @@ describe('Dashboard', () => {
 
   describe('Loading State', () => {
     it('should show loading spinner when tasks are being fetched', async () => {
-      mockApiService.getTasks.mockImplementation(() => new Promise(() => {})); // Never resolves
+      const { apiService } = await import('../../services/api');
+      (apiService.getTasks as any).mockImplementation(() => new Promise(() => {})); // Never resolves
 
       renderWithRouter(<Dashboard />);
 
@@ -36,7 +47,8 @@ describe('Dashboard', () => {
 
   describe('Error State', () => {
     it('should show error message when API call fails', async () => {
-      mockApiService.getTasks.mockRejectedValue(new Error('Failed to fetch'));
+      const { apiService } = await import('../../services/api');
+      (apiService.getTasks as any).mockRejectedValue(new Error('Failed to fetch'));
 
       renderWithRouter(<Dashboard />);
 
@@ -46,7 +58,8 @@ describe('Dashboard', () => {
     });
 
     it('should show retry button when error occurs', async () => {
-      mockApiService.getTasks.mockRejectedValue(new Error('Failed to fetch'));
+      const { apiService } = await import('../../services/api');
+      (apiService.getTasks as any).mockRejectedValue(new Error('Failed to fetch'));
 
       renderWithRouter(<Dashboard />);
 
@@ -56,7 +69,8 @@ describe('Dashboard', () => {
     });
 
     it('should retry loading tasks when retry button is clicked', async () => {
-      mockApiService.getTasks
+      const { apiService } = await import('../../services/api');
+      (apiService.getTasks as any)
         .mockRejectedValueOnce(new Error('Failed to fetch'))
         .mockResolvedValueOnce([]);
 
@@ -69,15 +83,16 @@ describe('Dashboard', () => {
       fireEvent.click(screen.getByRole('button', { name: /retry/i }));
 
       await waitFor(() => {
-        expect(mockApiService.getTasks).toHaveBeenCalledTimes(2);
+        expect(apiService.getTasks).toHaveBeenCalledTimes(2);
       });
     });
   });
 
   describe('Success State', () => {
     it('should display welcome message with user name', async () => {
+      const { apiService } = await import('../../services/api');
       const mockTasks: Task[] = [];
-      mockApiService.getTasks.mockResolvedValue(mockTasks);
+      (apiService.getTasks as any).mockResolvedValue(mockTasks);
 
       renderWithRouter(<Dashboard />);
 
@@ -87,12 +102,13 @@ describe('Dashboard', () => {
     });
 
     it('should display statistics cards with correct data', async () => {
+      const { apiService } = await import('../../services/api');
       const mockTasks = [
         { id: '1', title: 'Task 1', completed: false, subtasks: [] },
         { id: '2', title: 'Task 2', completed: true, subtasks: [{ id: '1', title: 'Subtask 1' }] },
         { id: '3', title: 'Task 3', completed: false, subtasks: [{ id: '2', title: 'Subtask 2' }] },
       ];
-      mockApiService.getTasks.mockResolvedValue(mockTasks);
+      (apiService.getTasks as any).mockResolvedValue(mockTasks);
 
       renderWithRouter(<Dashboard />);
 
@@ -112,8 +128,9 @@ describe('Dashboard', () => {
     });
 
     it('should display quick action buttons', async () => {
+      const { apiService } = await import('../../services/api');
       const mockTasks: any[] = [];
-      mockApiService.getTasks.mockResolvedValue(mockTasks);
+      (apiService.getTasks as any).mockResolvedValue(mockTasks);
 
       renderWithRouter(<Dashboard />);
 
@@ -124,6 +141,7 @@ describe('Dashboard', () => {
     });
 
     it('should display recent tasks when tasks exist', async () => {
+      const { apiService } = await import('../../services/api');
       const mockTasks = [
         { id: '1', title: 'Task 1', completed: false, subtasks: [] },
         { id: '2', title: 'Task 2', completed: true, subtasks: [{ id: '1', title: 'Subtask 1' }] },
@@ -132,7 +150,7 @@ describe('Dashboard', () => {
         { id: '5', title: 'Task 5', completed: false, subtasks: [] },
         { id: '6', title: 'Task 6', completed: false, subtasks: [] },
       ];
-      mockApiService.getTasks.mockResolvedValue(mockTasks);
+      (apiService.getTasks as any).mockResolvedValue(mockTasks);
 
       renderWithRouter(<Dashboard />);
 
@@ -150,8 +168,9 @@ describe('Dashboard', () => {
     });
 
     it('should display empty state when no tasks exist', async () => {
+      const { apiService } = await import('../../services/api');
       const mockTasks: any[] = [];
-      mockApiService.getTasks.mockResolvedValue(mockTasks);
+      (apiService.getTasks as any).mockResolvedValue(mockTasks);
 
       renderWithRouter(<Dashboard />);
 
@@ -165,11 +184,12 @@ describe('Dashboard', () => {
 
   describe('Task Interactions', () => {
     it('should toggle task completion when checkbox is clicked', async () => {
+      const { apiService } = await import('../../services/api');
       const mockTasks: any[] = [
         { id: '1', title: 'Task 1', completed: false, subtasks: [] },
       ];
-      mockApiService.getTasks.mockResolvedValue(mockTasks);
-      mockApiService.updateTask.mockResolvedValue({ ...mockTasks[0], completed: true });
+      (apiService.getTasks as any).mockResolvedValue(mockTasks);
+      (apiService.updateTask as any).mockResolvedValue({ ...mockTasks[0], completed: true });
 
       renderWithRouter(<Dashboard />);
 
@@ -181,17 +201,18 @@ describe('Dashboard', () => {
       fireEvent.click(checkbox);
 
       await waitFor(() => {
-        expect(mockApiService.updateTask).toHaveBeenCalledWith('1', { completed: true });
+        expect(apiService.updateTask).toHaveBeenCalledWith('1', { completed: true });
       });
     });
 
     it('should show subtask count for each task', async () => {
+      const { apiService } = await import('../../services/api');
       const mockTasks = [
         { id: '1', title: 'Task 1', completed: false, subtasks: [{ id: '1', title: 'Subtask 1' }] },
         { id: '2', title: 'Task 2', completed: false, subtasks: [] },
         { id: '3', title: 'Task 3', completed: false, subtasks: [{ id: '2', title: 'Subtask 2' }, { id: '3', title: 'Subtask 3' }] },
       ];
-      mockApiService.getTasks.mockResolvedValue(mockTasks);
+      (apiService.getTasks as any).mockResolvedValue(mockTasks);
 
       renderWithRouter(<Dashboard />);
 
@@ -203,11 +224,12 @@ describe('Dashboard', () => {
     });
 
     it('should show completed tasks with strikethrough', async () => {
+      const { apiService } = await import('../../services/api');
       const mockTasks = [
         { id: '1', title: 'Completed Task', completed: true, subtasks: [] },
         { id: '2', title: 'Pending Task', completed: false, subtasks: [] },
       ];
-      mockApiService.getTasks.mockResolvedValue(mockTasks);
+      (apiService.getTasks as any).mockResolvedValue(mockTasks);
 
       renderWithRouter(<Dashboard />);
 
@@ -215,7 +237,8 @@ describe('Dashboard', () => {
         const completedTask = screen.getByText('Completed Task');
         const pendingTask = screen.getByText('Pending Task');
         
-        expect(completedTask).toHaveClass('line-through');
+        expect(completedTask).toHaveClass('line-through', 'text-gray-500');
+        expect(pendingTask).toHaveClass('text-gray-900');
         expect(pendingTask).not.toHaveClass('line-through');
       });
     });
@@ -223,8 +246,9 @@ describe('Dashboard', () => {
 
   describe('Navigation', () => {
     it('should have correct links for quick actions', async () => {
+      const { apiService } = await import('../../services/api');
       const mockTasks: any[] = [];
-      mockApiService.getTasks.mockResolvedValue(mockTasks);
+      (apiService.getTasks as any).mockResolvedValue(mockTasks);
 
       renderWithRouter(<Dashboard />);
 
@@ -238,6 +262,7 @@ describe('Dashboard', () => {
     });
 
     it('should have correct link for viewing all tasks', async () => {
+      const { apiService } = await import('../../services/api');
       const mockTasks = [
         { id: '1', title: 'Task 1', completed: false, subtasks: [] },
         { id: '2', title: 'Task 2', completed: false, subtasks: [] },
@@ -246,7 +271,7 @@ describe('Dashboard', () => {
         { id: '5', title: 'Task 5', completed: false, subtasks: [] },
         { id: '6', title: 'Task 6', completed: false, subtasks: [] },
       ];
-      mockApiService.getTasks.mockResolvedValue(mockTasks);
+      (apiService.getTasks as any).mockResolvedValue(mockTasks);
 
       renderWithRouter(<Dashboard />);
 

@@ -7,10 +7,10 @@ jest.mock('@prisma/client', () => ({
 }));
 
 import request from 'supertest';
-import app from '../app.js';
+import app from '../app';
 
 // Mock the auth middleware to inject user ID
-jest.mock('../middleware/authMiddleware.js', () => ({
+jest.mock('../middleware/authMiddleware', () => ({
   authenticateUser: (req: any, res: any, next: any) => {
     // Simulate authentication by adding userId to request
     // Only set userId if x-user-id header is present

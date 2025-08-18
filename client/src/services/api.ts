@@ -79,7 +79,7 @@ class ApiService {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create task');
+        throw new Error(`Failed to create task. Status: ${response.status}`);
       }
 
       return response.json();  // Return the created task from the response
@@ -107,7 +107,7 @@ class ApiService {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to update task with ID: ${taskId}`);
+        throw new Error(`Failed to update task with ID: ${taskId}. Status: ${response.status}`);
       }
 
       return response.json();  // Return the updated task from the response
@@ -133,7 +133,7 @@ class ApiService {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to delete task with ID: ${taskId}`);
+        throw new Error(`Failed to delete task with ID: ${taskId}. Status: ${response.status}`);
       }
     } catch (error) {
       console.error(`Error deleting task with ID ${taskId}:`, error);
@@ -180,7 +180,7 @@ class ApiService {
    */
   async updateSubtask(subtaskId: string, updates: UpdateSubtaskRequest): Promise<Subtask> {
     try {
-      const response = await fetch(`${API_BASE_URL}/subtasks/${subtaskId}`, {
+      const response = await fetch(`${API_BASE_URL}/tasks/subtasks/${subtaskId}`, {
         method: 'PUT',
         headers: this.getHeaders(),  // Send headers without X-User-Id
         body: JSON.stringify(updates),  // Convert updates to JSON
@@ -206,7 +206,7 @@ class ApiService {
    */
   async deleteSubtask(subtaskId: string): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE_URL}/subtasks/${subtaskId}`, {
+      const response = await fetch(`${API_BASE_URL}/tasks/subtasks/${subtaskId}`, {
         method: 'DELETE',
         headers: this.getHeaders(),  // Send headers without X-User-Id
         credentials: 'include',  // Important for sending Clerk cookies

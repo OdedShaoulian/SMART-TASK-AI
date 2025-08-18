@@ -8,8 +8,8 @@ vi.mock('@clerk/clerk-react', () => ({
     user: { id: 'test-user', emailAddresses: [{ emailAddress: 'test@example.com' }] },
     isLoaded: true 
   }),
-  SignedIn: ({ children }: { children: React.ReactNode }) => children,
-  SignedOut: ({ children }: { children: React.ReactNode }) => null,
+  SignedIn: ({ children: _children }: { children: React.ReactNode }) => _children,
+  SignedOut: ({ children: _children }: { children: React.ReactNode }) => null,
   useClerk: () => ({
     signOut: vi.fn(),
     openSignIn: vi.fn(),
@@ -29,39 +29,35 @@ vi.mock('react-router-dom', async () => {
 });
 
 // Mock fetch
-global.fetch = vi.fn();
+(global as any).fetch = vi.fn();
+
+
 
 // Set test environment
-process.env.NODE_ENV = 'test';
+(process as any).env.NODE_ENV = 'test';
 
 // Mock console methods to reduce noise in tests
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
 
-beforeAll(() => {
-  console.error = (...args: any[]) => {
-    if (
-      typeof args[0] === 'string' &&
-      (args[0].includes('Warning: ReactDOM.render is no longer supported') ||
-       args[0].includes('Warning: useLayoutEffect does nothing on the server'))
-    ) {
-      return;
-    }
-    originalConsoleError.call(console, ...args);
-  };
-  
-  console.warn = (...args: any[]) => {
-    if (
-      typeof args[0] === 'string' &&
-      args[0].includes('componentWillReceiveProps has been renamed')
-    ) {
-      return;
-    }
-    originalConsoleWarn.call(console, ...args);
-  };
-});
+// Suppress specific console warnings in tests
+console.error = (...args: any[]) => {
+  if (
+    typeof args[0] === 'string' &&
+    (args[0].includes('Warning: ReactDOM.render is no longer supported') ||
+     args[0].includes('Warning: useLayoutEffect does nothing on the server'))
+  ) {
+    return;
+  }
+  originalConsoleError.call(console, ...args);
+};
 
-afterAll(() => {
-  console.error = originalConsoleError;
-  console.warn = originalConsoleWarn;
-});
+console.warn = (...args: any[]) => {
+  if (
+    typeof args[0] === 'string' &&
+    args[0].includes('componentWillReceiveProps has been renamed')
+  ) {
+    return;
+  }
+  originalConsoleWarn.call(console, ...args);
+};

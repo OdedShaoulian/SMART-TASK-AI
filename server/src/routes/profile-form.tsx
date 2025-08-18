@@ -18,7 +18,7 @@ router.post('/', async (req: Request, res: Response) => {
       throw new Error('Missing Clerk secret key');
     }
 
-    const response = await fetch(`https://api.clerk.com/v1/users/${userId}`, {
+    const response = await (global as any).fetch(`https://api.clerk.com/v1/users/${userId}`, {
       headers: {
         Authorization: `Bearer ${process.env.CLERK_SECRET_KEY}`,
       },

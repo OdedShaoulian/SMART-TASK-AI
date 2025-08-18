@@ -1,11 +1,11 @@
 import { Request, Response } from 'express';
-import { TaskService } from '../services/taskService.js';
+import { TaskService } from '../services/taskService';
 import {
   CreateTaskRequest,
   UpdateTaskRequest,
   CreateSubtaskRequest,
   UpdateSubtaskRequest,
-} from '../types/index.js';
+} from '../types/index';
 
 type AuthenticatedRequest = Request & { userId: string };
 
