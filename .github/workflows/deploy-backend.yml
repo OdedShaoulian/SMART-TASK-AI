@@ -230,11 +230,38 @@ jobs:
           echo "auth=" >> "$GITHUB_OUTPUT"
           echo "✅ Skipped Kudu auth parsing"
 
-      # --- Simple wait before deployment ---
+      # --- Azure Login and Status Check ---
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # --- Check Azure App Service Status ---
+      - name: Check App Service Status
+        run: |
+          echo "=== CHECKING AZURE APP SERVICE STATUS ==="
+          
+          # Check if app service exists and is accessible
+          az webapp show --name SMARTTASK-AI --resource-group smarttask-ai-rg || {
+            echo "❌ App service not found or not accessible"
+            echo "Available app services:"
+            az webapp list --resource-group smarttask-ai-rg --query "[].name" -o tsv || echo "No app services found"
+            exit 1
+          }
+          
+          echo "✅ App service is accessible"
+          
+          # Check recent deployments
+          echo "Recent deployments:"
+          az webapp deployment list --name SMARTTASK-AI --resource-group smarttask-ai-rg --query "[0:3].{Status:status,Time:endTime}" -o table || echo "No recent deployments found"
+          
+          echo "✅ Status check completed"
+
+      # --- Wait before deployment ---
       - name: Wait before deployment
         run: |
-          echo "Waiting 30 seconds before deployment to avoid conflicts..."
-          sleep 30
+          echo "Waiting 60 seconds before deployment..."
+          sleep 60
           echo "✅ Ready for deployment"
 
 
