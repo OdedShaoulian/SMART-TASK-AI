@@ -285,6 +285,7 @@ jobs:
         run: npm run dev &
         env:
           VITE_API_URL: http://localhost:3000
+          VITE_CLERK_PUBLISHABLE_KEY: pk_test_d2lzZS12aXBlci00OC5jbGVyay5hY2NvdW50cy5kZXYk
 
       - name: Wait for applications
         run: sleep 15
