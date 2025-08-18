@@ -221,41 +221,15 @@ jobs:
           
           echo "✅ Package validation completed"
 
-      # --- Skip Kudu auth parsing (optional for status checking) ---
-      - name: Skip Kudu auth parsing
-        id: kudu_auth
-        shell: bash
-        run: |
-          echo "Skipping Kudu auth parsing - not required for deployment"
-          echo "auth=" >> "$GITHUB_OUTPUT"
-          echo "✅ Skipped Kudu auth parsing"
 
-      # --- Azure Login and Status Check ---
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # --- Check Azure App Service Status ---
+      # --- Check Azure App Service Status (Optional) ---
       - name: Check App Service Status
         run: |
           echo "=== CHECKING AZURE APP SERVICE STATUS ==="
-          
-          # Check if app service exists and is accessible
-          az webapp show --name SMARTTASK-AI --resource-group smarttask-ai-rg || {
-            echo "❌ App service not found or not accessible"
-            echo "Available app services:"
-            az webapp list --resource-group smarttask-ai-rg --query "[].name" -o tsv || echo "No app services found"
-            exit 1
-          }
-          
-          echo "✅ App service is accessible"
-          
-          # Check recent deployments
-          echo "Recent deployments:"
-          az webapp deployment list --name SMARTTASK-AI --resource-group smarttask-ai-rg --query "[0:3].{Status:status,Time:endTime}" -o table || echo "No recent deployments found"
-          
-          echo "✅ Status check completed"
+          echo "Note: Using publish profile authentication - Azure CLI status check skipped"
+          echo "✅ Proceeding with deployment using publish profile"
+        continue-on-error: true
 
       # --- Wait before deployment ---
       - name: Wait before deployment
@@ -315,12 +289,8 @@ jobs:
         if: ${{ success() }}
         run: |
           echo "=== CONFIGURING STARTUP COMMAND ==="
-          echo "Setting startup command to 'npm start'..."
-          
-          # Use Azure CLI to set the startup command
-          az webapp config set --name SMARTTASK-AI --resource-group smarttask-ai-rg --startup-file "npm start" || echo "Warning: Could not set startup command via CLI"
-          
-          echo "✅ Startup command configured"
+          echo "Note: Startup command configuration skipped - using web.config instead"
+          echo "✅ Startup command will be handled by web.config"
 
       # --- Prisma migrations after successful deployment ---
       - name: Run Prisma migrations
@@ -380,9 +350,6 @@ jobs:
       # --- Failure diagnostics ---
       - name: Failure diagnostics
         if: ${{ failure() }}
-        shell: bash
-        env:
-          AUTH: ${{ steps.kudu_auth.outputs.auth }}
         run: |
           echo "=== FAILURE DIAGNOSTICS ==="
           
@@ -406,15 +373,8 @@ jobs:
             fi
           fi
           
-          # 5. Kudu deployment status
-          echo "6. Kudu deployment status:"
-          BASE="https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net"
-          res=$(curl -s -H "Authorization: Basic $AUTH" "$BASE/api/deployments/latest" || echo "Failed to fetch Kudu status")
-          echo "$res" | jq . 2>/dev/null || echo "$res"
-          
-          # 6. Recent deployments
-          echo "7. Recent deployments:"
-          res=$(curl -s -H "Authorization: Basic $AUTH" "$BASE/api/deployments" || echo "Failed to fetch recent deployments")
-          echo "$res" | jq '.[0:3]' 2>/dev/null || echo "$res"
+          # 5. Deployment status (simplified)
+          echo "6. Deployment failed - check Azure Portal for details"
+          echo "7. Verify publish profile is correctly configured"
           
           echo "❌ Deployment failed - see diagnostics above for troubleshooting"
