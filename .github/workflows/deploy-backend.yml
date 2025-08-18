@@ -221,74 +221,21 @@ jobs:
           
           echo "✅ Package validation completed"
 
-      # --- Parse publish profile for Kudu basic auth (to inspect status) ---
-      - name: Parse publish profile for Kudu auth
+      # --- Skip Kudu auth parsing (optional for status checking) ---
+      - name: Skip Kudu auth parsing
         id: kudu_auth
         shell: bash
         run: |
-          set -e
-          echo "${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}" > pubprofile.xml
-          
-          # Try multiple patterns to extract credentials
-          USER=$(sed -n 's/.*publishMethod="MSDeploy".*userName="\([^"]*\)".*/\1/p' pubprofile.xml | head -1)
-          PASS=$(sed -n 's/.*publishMethod="MSDeploy".*userPWD="\([^"]*\)".*/\1/p' pubprofile.xml | head -1)
-          
-          # If first pattern failed, try alternative patterns
-          if [ -z "$USER" ] || [ -z "$PASS" ]; then
-            echo "First pattern failed, trying alternative patterns..."
-            USER=$(sed -n 's/.*userName="\([^"]*\)".*/\1/p' pubprofile.xml | head -1)
-            PASS=$(sed -n 's/.*userPWD="\([^"]*\)".*/\1/p' pubprofile.xml | head -1)
-          fi
-          
-          # If still failed, try XML parsing with grep
-          if [ -z "$USER" ] || [ -z "$PASS" ]; then
-            echo "Alternative patterns failed, trying grep approach..."
-            USER=$(grep -o 'userName="[^"]*"' pubprofile.xml | head -1 | sed 's/userName="\([^"]*\)"/\1/')
-            PASS=$(grep -o 'userPWD="[^"]*"' pubprofile.xml | head -1 | sed 's/userPWD="\([^"]*\)"/\1/')
-          fi
-          
-          if [ -z "$USER" ] || [ -z "$PASS" ]; then
-            echo "❌ Could not extract MSDeploy creds from publish profile"
-            echo "Publish profile content (first 500 chars):"
-            head -c 500 pubprofile.xml
-            echo ""
-            echo "Available patterns in publish profile:"
-            grep -o 'userName="[^"]*"' pubprofile.xml || echo "No userName found"
-            grep -o 'userPWD="[^"]*"' pubprofile.xml || echo "No userPWD found"
-            exit 1
-          fi
-          
-          AUTH=$(printf "%s:%s" "$USER" "$PASS" | base64)
-          echo "auth=$AUTH" >> "$GITHUB_OUTPUT"
-          echo "✅ Kudu auth extracted successfully"
+          echo "Skipping Kudu auth parsing - not required for deployment"
+          echo "auth=" >> "$GITHUB_OUTPUT"
+          echo "✅ Skipped Kudu auth parsing"
 
-      # --- Inspect Kudu and wait until idle to avoid 409 conflicts ---
-      - name: Wait for Kudu to be idle
-        shell: bash
-        env:
-          AUTH: ${{ steps.kudu_auth.outputs.auth }}
+      # --- Simple wait before deployment ---
+      - name: Wait before deployment
         run: |
-          set -e
-          BASE="https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net"
-          echo "Checking Kudu deployment status..."
-          
-          for delay in 0 10 20 40 60 90; do
-            [ $delay -gt 0 ] && echo "Kudu busy. Sleeping ${delay}s..." && sleep $delay
-            
-            res=$(curl -s -H "Authorization: Basic $AUTH" "$BASE/api/deployments/latest" || true)
-            end=$(echo "$res" | jq -r '.end_time' 2>/dev/null || echo null)
-            prog=$(echo "$res" | jq -r '.progress' 2>/dev/null || echo null)
-            status=$(echo "$res" | jq -r '.status_text' 2>/dev/null || echo null)
-            
-            echo "Latest deployment: end_time=$end, progress=$prog, status=$status"
-            
-            if [ "$end" != "null" ] && [ "$prog" = "null" ]; then
-              echo "✅ Kudu idle - proceeding with deployment"
-              exit 0
-            fi
-          done
-          
-          echo "::warning::Kudu may still be busy; proceeding anyway."
+          echo "Waiting 30 seconds before deployment to avoid conflicts..."
+          sleep 30
+          echo "✅ Ready for deployment"
 
       # --- First deploy attempt (no slot-name!) ---
       - name: Deploy to Azure Web App (attempt 1)
@@ -300,33 +247,13 @@ jobs:
           package: ${{ steps.pkg.outputs.pkg }}
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
 
-      # --- If first attempt failed, wait again, then retry once ---
-      - name: Wait again if first attempt failed
+      # --- If first attempt failed, wait and retry once ---
+      - name: Wait before retry if first attempt failed
         if: ${{ steps.deploy1.outcome == 'failure' }}
-        shell: bash
-        env:
-          AUTH: ${{ steps.kudu_auth.outputs.auth }}
         run: |
-          set -e
-          BASE="https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net"
-          echo "First deployment failed. Waiting for Kudu to be idle before retry..."
-          
-          for delay in 20 40 60 90; do
-            echo "Retry backoff ${delay}s..."
-            sleep $delay
-            
-            res=$(curl -s -H "Authorization: Basic $AUTH" "$BASE/api/deployments/latest" || true)
-            end=$(echo "$res" | jq -r '.end_time' 2>/dev/null || echo null)
-            prog=$(echo "$res" | jq -r '.progress' 2>/dev/null || echo null)
-            status=$(echo "$res" | jq -r '.status_text' 2>/dev/null || echo null)
-            
-            echo "Latest deployment: end_time=$end, progress=$prog, status=$status"
-            
-            if [ "$end" != "null" ] && [ "$prog" = "null" ]; then
-              echo "✅ Kudu idle - proceeding with retry"
-              break
-            fi
-          done
+          echo "First deployment failed. Waiting 60 seconds before retry..."
+          sleep 60
+          echo "✅ Ready for retry"
 
       - name: Deploy to Azure Web App (attempt 2)
         if: ${{ steps.deploy1.outcome == 'failure' }}
