@@ -40,15 +40,15 @@ export default function Dashboard() {
   };
 
   // Derive statistics from the tasks list
-  const completedTasks = tasks.filter(task => task.completed);  // Filter completed tasks
-  const pendingTasks = tasks.filter(task => !task.completed);  // Filter pending tasks
-  const totalSubtasks = tasks.reduce((sum, task) => sum + (task.subtasks?.length || 0), 0);  // Calculate total subtasks
+  const completedTasks = (tasks || []).filter(task => task.completed);  // Filter completed tasks
+  const pendingTasks = (tasks || []).filter(task => !task.completed);  // Filter pending tasks
+  const totalSubtasks = (tasks || []).reduce((sum, task) => sum + (task.subtasks?.length || 0), 0);  // Calculate total subtasks
 
   // Loading state UI
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>  // Spinner for loading state
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" data-testid="loading-spinner"></div>  // Spinner for loading state
       </div>
     );
   }
