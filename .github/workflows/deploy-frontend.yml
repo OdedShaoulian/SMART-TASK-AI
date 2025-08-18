@@ -77,6 +77,11 @@ jobs:
           app_location: "./client"
           api_location: ""
           output_location: "dist"
+          app_build_command: "npm run build"
+          deployment_environment: production
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
 
       # --- Success notification ---
       - name: Notify deployment success

@@ -228,15 +228,39 @@ jobs:
         run: |
           set -e
           echo "${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}" > pubprofile.xml
+          
+          # Try multiple patterns to extract credentials
           USER=$(sed -n 's/.*publishMethod="MSDeploy".*userName="\([^"]*\)".*/\1/p' pubprofile.xml | head -1)
           PASS=$(sed -n 's/.*publishMethod="MSDeploy".*userPWD="\([^"]*\)".*/\1/p' pubprofile.xml | head -1)
+          
+          # If first pattern failed, try alternative patterns
+          if [ -z "$USER" ] || [ -z "$PASS" ]; then
+            echo "First pattern failed, trying alternative patterns..."
+            USER=$(sed -n 's/.*userName="\([^"]*\)".*/\1/p' pubprofile.xml | head -1)
+            PASS=$(sed -n 's/.*userPWD="\([^"]*\)".*/\1/p' pubprofile.xml | head -1)
+          fi
+          
+          # If still failed, try XML parsing with grep
+          if [ -z "$USER" ] || [ -z "$PASS" ]; then
+            echo "Alternative patterns failed, trying grep approach..."
+            USER=$(grep -o 'userName="[^"]*"' pubprofile.xml | head -1 | sed 's/userName="\([^"]*\)"/\1/')
+            PASS=$(grep -o 'userPWD="[^"]*"' pubprofile.xml | head -1 | sed 's/userPWD="\([^"]*\)"/\1/')
+          fi
+          
           if [ -z "$USER" ] || [ -z "$PASS" ]; then
             echo "❌ Could not extract MSDeploy creds from publish profile"
+            echo "Publish profile content (first 500 chars):"
+            head -c 500 pubprofile.xml
+            echo ""
+            echo "Available patterns in publish profile:"
+            grep -o 'userName="[^"]*"' pubprofile.xml || echo "No userName found"
+            grep -o 'userPWD="[^"]*"' pubprofile.xml || echo "No userPWD found"
             exit 1
           fi
+          
           AUTH=$(printf "%s:%s" "$USER" "$PASS" | base64)
           echo "auth=$AUTH" >> "$GITHUB_OUTPUT"
-          echo "✅ Kudu auth extracted"
+          echo "✅ Kudu auth extracted successfully"
 
       # --- Inspect Kudu and wait until idle to avoid 409 conflicts ---
       - name: Wait for Kudu to be idle
