@@ -264,7 +264,7 @@ jobs:
 
       - name: Install Playwright browsers
         working-directory: ./e2e
-        run: npx playwright install --with-deps
+        run: npx playwright install chromium
 
       - name: Setup database
         working-directory: ./server
@@ -285,7 +285,7 @@ jobs:
 
       - name: Run E2E tests
         working-directory: ./e2e
-        run: npx playwright test
+        run: npm run test:ci
 
       - name: Upload E2E test results
         uses: actions/upload-artifact@v4
