@@ -1,72 +1,127 @@
-name: Deploy Backend (App Service, gated by CI)
+name: Deploy Backend (App Service, ZIP deployment)
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
+  push:
     branches: [main]
+    paths: ['server/**']
 
 permissions:
   contents: read
 
 concurrency:
-  group: smarttask-ai-prod
+  group: smarttask-ai-backend
   cancel-in-progress: false
 
 jobs:
   deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # --- Setup Node.js ---
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
 
-      # --- Verify package.json exists ---
-      - name: Verify package.json
-        run: |
-          test -f server/package.json || (echo "Missing server/package.json" && exit 1)
-          echo "✅ package.json verified"
-
-      # --- Ensure Oryx will build on Azure (source deployment only) ---
-      - name: Ensure .deployment for Oryx build
+      # --- Build and package the application ---
+      - name: Build and package application
         working-directory: server
         run: |
-          echo "=== CONFIGURING FOR ORYX BUILD ==="
-          # IMPORTANT: Do NOT set WEBSITE_RUN_FROM_PACKAGE anywhere
-          echo "SCM_DO_BUILD_DURING_DEPLOYMENT=true" > .deployment
+          echo "=== BUILDING AND PACKAGING APPLICATION ==="
+          
+          # Install dependencies
+          npm ci
+          
+          # Build the application
+          npm run build
+          
+          # Generate Prisma client
+          npm run db:generate
+          
+          # Create deployment directory
+          mkdir -p deploy
+          
+          # Copy built application
+          cp -r dist/* deploy/
+          
+          # Copy package files
+          cp package.json deploy/
+          cp package-lock.json deploy/
+          
+          # Copy Prisma schema and migrations
+          cp -r prisma deploy/
+          
+          # Create production package.json (remove dev dependencies and scripts)
+          cd deploy
+          npm pkg delete devDependencies
+          npm pkg delete scripts
+          npm pkg set main="index.js"
+          npm pkg set scripts.start="node index.js"
+          
+          # Install only production dependencies
+          npm ci --only=production
+          
+          # Create .deployment file to disable Oryx build
+          echo "SCM_DO_BUILD_DURING_DEPLOYMENT=false" > .deployment
           echo "WEBSITE_NODE_DEFAULT_VERSION=20" >> .deployment
-          # Linux App Service doesn't need web.config when using Oryx + npm start
-          echo "✅ .deployment configured for Oryx build"
+          echo "WEBSITE_RUN_FROM_PACKAGE=1" >> .deployment
+          
+          # Create web.config for Azure App Service
+          echo '<?xml version="1.0" encoding="utf-8"?>' > web.config
+          echo '<configuration>' >> web.config
+          echo '  <system.webServer>' >> web.config
+          echo '    <handlers>' >> web.config
+          echo '      <add name="iisnode" path="index.js" verb="*" modules="iisnode" />' >> web.config
+          echo '    </handlers>' >> web.config
+          echo '    <rewrite>' >> web.config
+          echo '      <rules>' >> web.config
+          echo '        <rule name="NodeInspector" patternSyntax="ECMAScript" stopProcessing="true">' >> web.config
+          echo '          <match url="^index.js\/debug[\/]?" />' >> web.config
+          echo '        </rule>' >> web.config
+          echo '        <rule name="StaticContent">' >> web.config
+          echo '          <action type="Rewrite" url="index.js" />' >> web.config
+          echo '        </rule>' >> web.config
+          echo '      </rules>' >> web.config
+          echo '    </rewrite>' >> web.config
+          echo '    <defaultDocument>' >> web.config
+          echo '      <files>' >> web.config
+          echo '        <add value="index.js" />' >> web.config
+          echo '      </files>' >> web.config
+          echo '    </defaultDocument>' >> web.config
+          echo '  </system.webServer>' >> web.config
+          echo '</configuration>' >> web.config
+          
+          cd ..
+          
+          echo "✅ Deployment package created successfully"
+          echo "Package contents:"
+          ls -la deploy/
+          echo "Package size:"
+          du -sh deploy
 
-      # --- Azure Login ---
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
-
-      # --- Stop App Service (release file locks) ---
-      - name: Stop App Service
+      # --- Create ZIP deployment package ---
+      - name: Create ZIP deployment package
+        working-directory: server
         run: |
-          echo "=== STOPPING APP SERVICE ==="
-          az webapp stop --name SMARTTASK-AI --resource-group smarttask-ai-rg
-          echo "✅ App Service stopped"
+          echo "=== CREATING ZIP DEPLOYMENT PACKAGE ==="
+          
+          # Create ZIP file
+          zip -r deploy.zip deploy/
+          
+          echo "✅ ZIP package created"
+          echo "ZIP file size:"
+          ls -lh deploy.zip
 
-      # --- Deploy to Azure Web App (source folder) ---
+      # --- Deploy to Azure Web App ---
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: SMARTTASK-AI
-          package: server
+          package: server/deploy.zip
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
-
-      # --- Start App Service ---
-      - name: Start App Service
-        if: always()
-        run: |
-          echo "=== STARTING APP SERVICE ==="
-          az webapp start --name SMARTTASK-AI --resource-group smarttask-ai-rg
-          echo "✅ App Service started"
 
       # --- Health check ---
       - name: Health check
@@ -74,6 +129,14 @@ jobs:
           echo "=== HEALTH CHECK ==="
           echo "Waiting for app to start..."
           sleep 30
+          
           echo "Attempting health check..."
           curl -f https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/health || exit 1
           echo "✅ Health check passed"
+
+      # --- Success notification ---
+      - name: Notify deployment success
+        run: |
+          echo "✅ Successfully deployed to Azure App Service"
+          echo "Deployment package: ZIP with production build"
+          echo "App URL: https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net"
