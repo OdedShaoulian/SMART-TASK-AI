@@ -231,16 +231,58 @@ jobs:
           echo "✅ Proceeding with deployment using publish profile"
         continue-on-error: true
 
-      # --- Wait before deployment ---
-      - name: Wait before deployment
+
+
+      # --- Debug package before deployment ---
+      - name: Debug package before deployment
         run: |
-          echo "Waiting 60 seconds before deployment..."
-          sleep 60
-          echo "✅ Ready for deployment"
+          echo "=== DEBUG PACKAGE BEFORE DEPLOYMENT ==="
+          echo "Package path: ${{ steps.pkg.outputs.pkg }}"
+          echo "Current directory: $(pwd)"
+          
+          if [ -d "${{ steps.pkg.outputs.pkg }}" ]; then
+            echo "✅ Package directory exists"
+            echo "Package contents:"
+            ls -la "${{ steps.pkg.outputs.pkg }}"
+            
+            if [ -f "${{ steps.pkg.outputs.pkg }}/package.json" ]; then
+              echo "✅ package.json exists"
+              echo "Package.json contents:"
+              cat "${{ steps.pkg.outputs.pkg }}/package.json"
+            else
+              echo "❌ package.json missing"
+            fi
+            
+            if [ -f "${{ steps.pkg.outputs.pkg }}/web.config" ]; then
+              echo "✅ web.config exists"
+            else
+              echo "❌ web.config missing"
+            fi
+            
+            if [ -f "${{ steps.pkg.outputs.pkg }}/.deployment" ]; then
+              echo "✅ .deployment exists"
+              echo ".deployment contents:"
+              cat "${{ steps.pkg.outputs.pkg }}/.deployment"
+            else
+              echo "❌ .deployment missing"
+            fi
+            
+            echo "Package size:"
+            du -sh "${{ steps.pkg.outputs.pkg }}"
+          else
+            echo "❌ Package directory does not exist"
+            exit 1
+          fi
+          
+          echo "=== PUBLISH PROFILE DEBUG ==="
+          if [ -n "${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}" ]; then
+            echo "✅ Publish profile secret is set"
+            echo "Publish profile length: ${#AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912}"
+          else
+            echo "❌ Publish profile secret is NOT set"
+          fi
 
-
-
-      # --- First deploy attempt ---
+      # --- First deploy attempt with detailed error capture ---
       - name: Deploy to Azure Web App (attempt 1)
         id: deploy1
         uses: azure/webapps-deploy@v3
@@ -250,39 +292,32 @@ jobs:
           package: ${{ steps.pkg.outputs.pkg }}
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
 
-      # --- If first attempt failed, wait longer and retry ---
-      - name: Wait before retry if first attempt failed
-        if: ${{ steps.deploy1.outcome == 'failure' }}
+      # --- Analyze deployment result ---
+      - name: Analyze deployment result
+        if: ${{ always() }}
         run: |
-          echo "First deployment failed. Waiting 120 seconds before retry..."
-          sleep 120
-          echo "✅ Ready for retry"
-
-      - name: Deploy to Azure Web App (attempt 2)
-        id: deploy2
-        if: ${{ steps.deploy1.outcome == 'failure' }}
-        uses: azure/webapps-deploy@v3
-        continue-on-error: true
-        with:
-          app-name: SMARTTASK-AI
-          package: ${{ steps.pkg.outputs.pkg }}
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
-
-      # --- Final retry with longer wait ---
-      - name: Wait before final retry
-        if: ${{ steps.deploy1.outcome == 'failure' && steps.deploy2.outcome == 'failure' }}
-        run: |
-          echo "Second deployment also failed. Waiting 180 seconds before final retry..."
-          sleep 180
-          echo "✅ Ready for final retry"
-
-      - name: Deploy to Azure Web App (final attempt)
-        if: ${{ steps.deploy1.outcome == 'failure' && steps.deploy2.outcome == 'failure' }}
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: SMARTTASK-AI
-          package: ${{ steps.pkg.outputs.pkg }}
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
+          echo "=== DEPLOYMENT ANALYSIS ==="
+          echo "Deployment outcome: ${{ steps.deploy1.outcome }}"
+          
+          if [[ "${{ steps.deploy1.outcome }}" == "success" ]]; then
+            echo "✅ Deployment succeeded!"
+          else
+            echo "❌ DEPLOYMENT FAILED"
+            echo ""
+            echo "=== TROUBLESHOOTING GUIDE ==="
+            echo "1. Check Azure Portal for App Service status"
+            echo "2. Verify publish profile is correct and not expired"
+            echo "3. Check if App Service is running and accessible"
+            echo "4. Verify app name 'SMARTTASK-AI' exists in Azure"
+            echo "5. Check resource group permissions"
+            echo "6. Verify package format is compatible with App Service"
+            echo ""
+            echo "=== NEXT STEPS ==="
+            echo "1. Check Azure Portal > App Service > Deployment Center"
+            echo "2. Look for deployment logs in Kudu"
+            echo "3. Verify publish profile in Azure Portal"
+            echo "4. Check App Service configuration"
+          fi
 
       # --- Configure startup command after deployment ---
       - name: Configure startup command
@@ -344,8 +379,29 @@ jobs:
             server/package.json
             server/package-lock.json
             server/
-            pubprofile.xml
+            ${{ steps.pkg.outputs.pkg }}/
           retention-days: 30
+
+      # --- Capture deployment logs ---
+      - name: Capture deployment logs
+        if: ${{ always() }}
+        run: |
+          echo "=== DEPLOYMENT LOGS CAPTURE ==="
+          echo "This step captures any available deployment information"
+          echo "Check the GitHub Actions logs for detailed error messages"
+          echo "Look for 'Deploy to Azure Web App' step output"
+          echo ""
+          echo "Common 409 Conflict causes:"
+          echo "1. Another deployment is currently running"
+          echo "2. App Service is in a transitional state"
+          echo "3. Package format is incompatible"
+          echo "4. Publish profile has insufficient permissions"
+          echo ""
+          echo "To debug further:"
+          echo "1. Check Azure Portal > App Service > Deployment Center"
+          echo "2. Look at the deployment history"
+          echo "3. Check if there are any ongoing deployments"
+          echo "4. Verify the App Service is running and healthy"
 
       # --- Failure diagnostics ---
       - name: Failure diagnostics
