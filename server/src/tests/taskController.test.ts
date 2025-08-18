@@ -1,7 +1,7 @@
-import { TaskController } from '../controllers/taskController';
-import { TaskService } from '../services/taskService';
+import { TaskController } from '../controllers/taskController.js';
+import { TaskService } from '../services/taskService.js';
 import { Request, Response } from 'express';
-import type { Task, Subtask, AuthenticatedRequest } from '../types/index';
+import type { Task, Subtask, AuthenticatedRequest } from '../types/index.js';
 
 // Mock the TaskService
 jest.mock('../services/taskService');

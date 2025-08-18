@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from '@jest/globals';
-import { prisma } from '../__mocks__/db/client';
+import { prisma } from '../__mocks__/db/client.js';
 
 // Mock Prisma before importing app
 jest.mock('@prisma/client', () => ({
@@ -7,7 +7,7 @@ jest.mock('@prisma/client', () => ({
 }));
 
 import request from 'supertest';
-import app from '../app';
+import app from '../app.js';
 
 // Mock the auth middleware to inject user ID
 jest.mock('../middleware/authMiddleware', () => ({

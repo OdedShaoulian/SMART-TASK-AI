@@ -1,24 +1,25 @@
-name: Deploy Backend (App Service, ZIP deployment)
+name: Deploy Backend (ZIP + Publish Profile)
 
 on:
   push:
-    branches: [main]
-    paths: ['server/**']
+    branches: [ main ]
+    paths:
+      - "server/**"
+      - ".github/workflows/deploy-backend.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: smarttask-ai-backend
+  group: smarttask-ai-prod
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # --- Setup Node.js ---
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -26,117 +27,56 @@ jobs:
           cache: 'npm'
           cache-dependency-path: server/package-lock.json
 
-      # --- Build and package the application ---
-      - name: Build and package application
+      - name: Build server
         working-directory: server
         run: |
-          echo "=== BUILDING AND PACKAGING APPLICATION ==="
-          
-          # Install dependencies
+          set -e
           npm ci
-          
-          # Build the application
           npm run build
-          
-          # Generate Prisma client
-          npm run db:generate
-          
-          # Create deployment directory
-          mkdir -p deploy
-          
-          # Copy built application
-          cp -r dist/* deploy/
-          
-          # Copy package files
-          cp package.json deploy/
-          cp package-lock.json deploy/
-          
-          # Copy Prisma schema and migrations
-          cp -r prisma deploy/
-          
-          # Create production package.json (remove dev dependencies and scripts)
-          cd deploy
-          npm pkg delete devDependencies
-          npm pkg delete scripts
-          npm pkg set main="index.js"
-          npm pkg set scripts.start="node index.js"
-          
-          # Install only production dependencies
-          npm ci --only=production
-          
-          # Create .deployment file to disable Oryx build
-          echo "SCM_DO_BUILD_DURING_DEPLOYMENT=false" > .deployment
-          echo "WEBSITE_NODE_DEFAULT_VERSION=20" >> .deployment
-          echo "WEBSITE_RUN_FROM_PACKAGE=1" >> .deployment
-          
-          # Create web.config for Azure App Service
-          echo '<?xml version="1.0" encoding="utf-8"?>' > web.config
-          echo '<configuration>' >> web.config
-          echo '  <system.webServer>' >> web.config
-          echo '    <handlers>' >> web.config
-          echo '      <add name="iisnode" path="index.js" verb="*" modules="iisnode" />' >> web.config
-          echo '    </handlers>' >> web.config
-          echo '    <rewrite>' >> web.config
-          echo '      <rules>' >> web.config
-          echo '        <rule name="NodeInspector" patternSyntax="ECMAScript" stopProcessing="true">' >> web.config
-          echo '          <match url="^index.js\/debug[\/]?" />' >> web.config
-          echo '        </rule>' >> web.config
-          echo '        <rule name="StaticContent">' >> web.config
-          echo '          <action type="Rewrite" url="index.js" />' >> web.config
-          echo '        </rule>' >> web.config
-          echo '      </rules>' >> web.config
-          echo '    </rewrite>' >> web.config
-          echo '    <defaultDocument>' >> web.config
-          echo '      <files>' >> web.config
-          echo '        <add value="index.js" />' >> web.config
-          echo '      </files>' >> web.config
-          echo '    </defaultDocument>' >> web.config
-          echo '  </system.webServer>' >> web.config
-          echo '</configuration>' >> web.config
-          
-          cd ..
-          
-          echo "✅ Deployment package created successfully"
-          echo "Package contents:"
-          ls -la deploy/
-          echo "Package size:"
-          du -sh deploy
+          npm ci --omit=dev
+          test -f dist/index.js || (echo "dist/index.js missing" && exit 1)
 
-      # --- Create ZIP deployment package ---
-      - name: Create ZIP deployment package
-        working-directory: server
+      - name: Assemble deploy folder
         run: |
-          echo "=== CREATING ZIP DEPLOYMENT PACKAGE ==="
-          
-          # Create ZIP file
-          zip -r deploy.zip deploy/
-          
-          echo "✅ ZIP package created"
-          echo "ZIP file size:"
-          ls -lh deploy.zip
+          rm -rf server/deploy
+          mkdir -p server/deploy
+          cp -r server/dist server/deploy/dist
+          cp -r server/node_modules server/deploy/node_modules
+          cp server/package.json server/deploy/package.json
+          cp server/package-lock.json server/deploy/package-lock.json
+          if [ -d "server/prisma" ]; then cp -r server/prisma server/deploy/prisma; fi
+          # IMPORTANT: do NOT copy .deployment or oryx-manifest.toml
 
-      # --- Deploy to Azure Web App ---
-      - name: Deploy to Azure Web App
+      - name: Create ZIP package
+        run: |
+          cd server/deploy
+          zip -r ../backend-deployment.zip .
+          cd ..
+          ls -la backend-deployment.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-zip
+          path: server/backend-deployment.zip
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-zip
+
+      - name: Deploy to Azure Web App (Publish Profile only)
         uses: azure/webapps-deploy@v3
         with:
           app-name: SMARTTASK-AI
-          package: server/deploy.zip
+          package: backend-deployment.zip
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
 
-      # --- Health check ---
       - name: Health check
         run: |
-          echo "=== HEALTH CHECK ==="
-          echo "Waiting for app to start..."
           sleep 30
-          
-          echo "Attempting health check..."
           curl -f https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/health || exit 1
-          echo "✅ Health check passed"
-
-      # --- Success notification ---
-      - name: Notify deployment success
-        run: |
-          echo "✅ Successfully deployed to Azure App Service"
-          echo "Deployment package: ZIP with production build"
-          echo "App URL: https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net"

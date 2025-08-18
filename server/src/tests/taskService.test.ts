@@ -1,5 +1,5 @@
-import { TaskService } from '../services/taskService';
-import { prisma } from '../__mocks__/db/client';
+import { TaskService } from '../services/taskService.js';
+import { prisma } from '../__mocks__/db/client.js';
 
 // Mock Prisma before importing TaskService
 jest.mock('@prisma/client', () => ({
