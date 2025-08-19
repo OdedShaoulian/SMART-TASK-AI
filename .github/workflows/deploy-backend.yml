@@ -130,12 +130,12 @@ jobs:
           ls -la
           test -f backend-deployment.zip || (echo "backend-deployment.zip missing after download" && exit 1)
 
-      # Light warm-up ping to the app; not a fix-all, just reduces cold starts
-      - name: Warm up App Service
+      # Light warm-up ping to the SCM; not a fix-all, just reduces cold starts
+      - name: Warm up SCM
         run: |
           for i in 1 2 3; do
-            echo "Warmup attempt $i"
-            curl -I --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net || true
+            echo "SCM warmup attempt $i"
+            curl -sS -I --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/ || true
             sleep $((5 * i))
           done
 
@@ -160,7 +160,7 @@ jobs:
           echo "Attempting to clean up old deployment artifacts..."
           curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
             -H "Content-Type: application/json" \
-            -d '{"command":"rm -rf /home/site/wwwroot/.deployment /home/site/wwwroot/oryx-manifest.toml /home/site/wwwroot/node_modules.tar.gz /home/site/wwwroot/.npm /home/site/wwwroot/.cache /home/site/wwwroot/_del_node_modules /home/site/wwwroot/node_modules","dir":"/home/site/wwwroot"}' \
+            -d '{"command":"rm -rf /home/site/wwwroot/.deployment /home/site/wwwroot/oryx-manifest.toml /home/site/wwwroot/node_modules.tar.gz /home/site/wwwroot/.npm /home/site/wwwroot/.cache","dir":"/home/site/wwwroot"}' \
             || echo "Cleanup failed, continuing..."
           
           # Verify cleanup worked
@@ -208,6 +208,15 @@ jobs:
           curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
             -H "Content-Type: application/json" \
             -d '{"command":"ls -lah /home/site/wwwroot/node_modules/cors || ls -lah /home/site/wwwroot/_del_node_modules/cors || (echo cors-not-found && exit 2)","dir":"/"}'
+
+      # List node_modules on server (post-deploy)
+      - name: List node_modules on server (post-deploy)
+        if: success()
+        run: |
+          echo "Listing /home/site/wwwroot/node_modules (top 200 entries max):"
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+            -H "Content-Type: application/json" \
+            -d '{"command":"ls -lah /home/site/wwwroot/node_modules | head -200","dir":"/"}'
 
       # Basic health check (adjust route if your server exposes a different probe)
       - name: Health check
