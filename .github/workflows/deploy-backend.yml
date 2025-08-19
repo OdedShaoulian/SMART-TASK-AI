@@ -70,35 +70,40 @@ jobs:
       # - exclude Oryx manifest to prevent Oryx from running on the server
       # - exclude heavy frontend-only deps (next/@next) and build-time typescript
       # - exclude obvious caches/bins/tests/docs to shrink package size
-      - name: Create ZIP package (tarball node_modules for Azure startup)
+      - name: Create ZIP package (exclude Oryx & heavy frontend-only deps)
         run: |
           cd server
-          # Ensure workspace is clean from Oryx markers (do not touch node_modules itself)
-          rm -f oryx-manifest.toml .deployment
-
-          # Sanity: cors must exist before tar
-          test -f node_modules/cors/package.json || (echo "ERROR: cors missing before tar"; exit 1)
-
-          echo "Creating node_modules.tar.gz (Azure startup will extract this to /node_modules)..."
-          tar -C node_modules -czf node_modules.tar.gz .
-
-          echo "Verify cors exists inside tarball..."
-          tar -tzf node_modules.tar.gz | grep -q "^cors/package.json$" || (echo "ERROR: cors not found inside tarball"; exit 1)
-
-          # Build deployment ZIP with dist, package manifest files, and the tarball
-          zip -r ../backend-deployment.zip dist package.json package-lock.json node_modules.tar.gz \
-            -x "oryx-manifest.toml" ".deployment"
-
+          # Ensure no Oryx artifacts exist before zipping
+          rm -f oryx-manifest.toml node_modules.tar.gz .deployment
+          echo "Removed Oryx artifacts, current directory contents:"
+          ls -la
+          
+          # Verify cors is in node_modules before zipping
+          echo "Verifying cors package exists in node_modules..."
+          ls -la node_modules/cors || (echo "ERROR: cors package missing from node_modules" && exit 1)
+          
+          zip -r ../backend-deployment.zip dist node_modules package.json package-lock.json \
+            -x "oryx-manifest.toml" \
+               "node_modules/next/**" "node_modules/@next/**" "node_modules/typescript/**" \
+               "node_modules.tar.gz" "node_modules/.cache/**" "node_modules/.bin/**" \
+               "node_modules/*/test/**" "node_modules/*/tests/**" "node_modules/*/docs/**" "node_modules/*/examples/**" \
+               ".deployment"
           cd ..
           ls -la backend-deployment.zip
           echo "ZIP size:" && du -h backend-deployment.zip
+          
+          # Verify cors is in the ZIP
+          echo "Verifying cors package is in the ZIP..."
+          unzip -l backend-deployment.zip | grep "cors" || (echo "ERROR: cors package not found in ZIP" && exit 1)
+          
+          # Verify no Oryx artifacts in ZIP
+          echo "Verifying no Oryx artifacts in ZIP..."
+          unzip -l backend-deployment.zip | grep -E "(oryx-manifest|node_modules\.tar\.gz|\.deployment)" && (echo "ERROR: Oryx artifacts found in ZIP" && exit 1) || echo "OK: No Oryx artifacts in ZIP"
 
-      # Verify 'cors' included in tarball (inside ZIP)
-      - name: Verify 'cors' included in tarball (inside ZIP)
+      # Verify 'cors' included in ZIP
+      - name: Verify 'cors' included in ZIP
         run: |
-          unzip -p backend-deployment.zip node_modules.tar.gz > node_modules.tar.gz
-          tar -tzf node_modules.tar.gz | grep -q "^cors/package.json$" || (echo "❌ cors not in node_modules.tar.gz"; exit 1)
-          rm -f node_modules.tar.gz
+          unzip -l backend-deployment.zip | grep -q "node_modules/cors/package.json" || (echo "❌ cors not in ZIP"; exit 1)
 
       # Upload the ZIP as a workflow artifact to be consumed by the deploy job
       - name: Upload artifact
@@ -155,7 +160,7 @@ jobs:
           echo "Attempting to clean up old deployment artifacts..."
           curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
             -H "Content-Type: application/json" \
-            -d '{"command":"rm -rf /home/site/wwwroot/.deployment /home/site/wwwroot/oryx-manifest.toml /home/site/wwwroot/.npm /home/site/wwwroot/.cache","dir":"/home/site/wwwroot"}' \
+            -d '{"command":"rm -rf /home/site/wwwroot/.deployment /home/site/wwwroot/oryx-manifest.toml /home/site/wwwroot/node_modules.tar.gz /home/site/wwwroot/.npm /home/site/wwwroot/.cache","dir":"/home/site/wwwroot"}' \
             || echo "Cleanup failed, continuing..."
           
           # Verify cleanup worked
