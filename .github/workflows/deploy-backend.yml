@@ -70,7 +70,30 @@ jobs:
           ls -la
           test -f backend-deployment.zip || (echo "backend-deployment.zip missing after download" && exit 1)
 
-      - name: Deploy to Azure Web App (Publish Profile only)
+      - name: Warm up App Service
+        run: |
+          for i in 1 2 3; do
+            echo "Warmup attempt $i"
+            curl -I --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net || true
+            sleep $((5 * i))
+          done
+
+      - name: Deploy to Azure Web App (attempt 1)
+        uses: azure/webapps-deploy@v3
+        continue-on-error: true
+        with:
+          app-name: SMARTTASK-AI
+          package: backend-deployment.zip
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
+
+      - name: Backoff before retry if needed
+        if: failure()
+        run: |
+          echo "First deploy attempt failed; sleeping before retry..."
+          sleep 25
+
+      - name: Deploy to Azure Web App (attempt 2)
+        if: failure()
         uses: azure/webapps-deploy@v3
         with:
           app-name: SMARTTASK-AI
