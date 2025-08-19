@@ -85,6 +85,14 @@ jobs:
             sleep $((5 * i))
           done
 
+      - name: Clean up Azure App Service (if possible)
+        run: |
+          echo "Attempting to clean up old deployment artifacts..."
+          curl -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.israelcentral-01.azurewebsites.net/api/command" \
+            -H "Content-Type: application/json" \
+            -d '{"command": "rm -rf /home/site/wwwroot/.deployment /home/site/wwwroot/oryx-manifest.toml /home/site/wwwroot/node_modules.tar.gz /home/site/wwwroot/.npm /home/site/wwwroot/.cache", "dir": "/home/site/wwwroot"}' \
+            --user "${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}" || echo "Cleanup failed, continuing..."
+
       - name: Deploy to Azure Web App (attempt 1)
         uses: azure/webapps-deploy@v3
         continue-on-error: true
