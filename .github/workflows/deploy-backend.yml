@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: smarttask-ai-backend-${{ github.ref }}
+  group: smarttask-ai-backend
   cancel-in-progress: true
 
 jobs:
@@ -51,7 +51,7 @@ jobs:
         run: |
           cd server
           zip -r ../backend-deployment.zip dist node_modules package.json package-lock.json \
-            -x "oryx-manifest.toml" "node_modules/next/**" "node_modules/@next/**" "node_modules/typescript/**" "node_modules.tar.gz"
+            -x "oryx-manifest.toml" "node_modules/next/**" "node_modules/@next/**" "node_modules/typescript/**" "node_modules.tar.gz" "node_modules/.cache/**" "node_modules/.bin/**" "node_modules/*/test/**" "node_modules/*/tests/**" "node_modules/*/docs/**" "node_modules/*/examples/**"
           cd ..
           ls -la backend-deployment.zip
           echo "ZIP size:" && du -h backend-deployment.zip
@@ -92,12 +92,13 @@ jobs:
           app-name: SMARTTASK-AI
           package: backend-deployment.zip
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
+          slot-name: production
 
       - name: Backoff before retry if needed
         if: failure()
         run: |
           echo "First deploy attempt failed; sleeping before retry..."
-          sleep 25
+          sleep 30
 
       - name: Deploy to Azure Web App (attempt 2)
         if: failure()
@@ -106,6 +107,7 @@ jobs:
           app-name: SMARTTASK-AI
           package: backend-deployment.zip
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
+          slot-name: production
 
       - name: Health check
         run: |
