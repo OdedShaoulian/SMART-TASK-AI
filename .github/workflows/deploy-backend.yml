@@ -53,7 +53,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: backend-zip
-          path: server/backend-deployment.zip
+          path: backend-deployment.zip
+          if-no-files-found: error
 
   deploy:
     runs-on: ubuntu-latest
@@ -63,6 +64,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: backend-zip
+          path: .
+      - name: Verify downloaded package
+        run: |
+          ls -la
+          test -f backend-deployment.zip || (echo "backend-deployment.zip missing after download" && exit 1)
 
       - name: Deploy to Azure Web App (Publish Profile only)
         uses: azure/webapps-deploy@v3
