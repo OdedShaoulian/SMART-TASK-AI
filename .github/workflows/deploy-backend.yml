@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: smarttask-ai-prod
-  cancel-in-progress: false
+  group: smarttask-ai-backend-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -36,21 +36,16 @@ jobs:
           npm ci --omit=dev
           test -f dist/index.js || (echo "dist/index.js missing" && exit 1)
 
-      - name: Assemble deploy folder
+      - name: Verify dist artifacts exist
         run: |
-          rm -rf server/deploy
-          mkdir -p server/deploy
-          cp -r server/dist server/deploy/dist
-          cp -r server/node_modules server/deploy/node_modules
-          cp server/package.json server/deploy/package.json
-          cp server/package-lock.json server/deploy/package-lock.json
-          if [ -d "server/prisma" ]; then cp -r server/prisma server/deploy/prisma; fi
-          # IMPORTANT: do NOT copy .deployment or oryx-manifest.toml
+          ls -lah server/dist || true
+          ls -lah server/dist/routes || true
+          node -e "const fs=require('fs');process.exit(fs.existsSync('server/dist/routes/clerkRoutes.js')?0:(console.error('missing dist/routes/clerkRoutes.js'),1));"
 
       - name: Create ZIP package
         run: |
-          cd server/deploy
-          zip -r ../backend-deployment.zip .
+          cd server
+          zip -r ../backend-deployment.zip dist node_modules package.json package-lock.json
           cd ..
           ls -la backend-deployment.zip
 
