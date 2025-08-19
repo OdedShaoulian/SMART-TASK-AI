@@ -44,6 +44,9 @@ jobs:
       - name: Verify runtime deps (express/cors)
         working-directory: server
         run: |
+          echo "Checking runtime dependencies..."
+          ls -la node_modules/cors || echo "WARNING: cors not found in node_modules"
+          ls -la node_modules/express || echo "WARNING: express not found in node_modules"
           node -e "try{require('express');require('cors');console.log('OK runtime deps');}catch(e){console.error('Missing runtime dependency (move it from devDependencies to dependencies):', e?.message||e); process.exit(1);}"
 
       # Double-check that clerkRoutes.js exists in the emitted dist
@@ -62,6 +65,11 @@ jobs:
           cd server
           # Ensure no Oryx artifacts exist before zipping
           rm -f oryx-manifest.toml node_modules.tar.gz .deployment
+          
+          # Verify cors is in node_modules before zipping
+          echo "Verifying cors package exists in node_modules..."
+          ls -la node_modules/cors || (echo "ERROR: cors package missing from node_modules" && exit 1)
+          
           zip -r ../backend-deployment.zip dist node_modules package.json package-lock.json \
             -x "oryx-manifest.toml" \
                "node_modules/next/**" "node_modules/@next/**" "node_modules/typescript/**" \
@@ -71,6 +79,10 @@ jobs:
           cd ..
           ls -la backend-deployment.zip
           echo "ZIP size:" && du -h backend-deployment.zip
+          
+          # Verify cors is in the ZIP
+          echo "Verifying cors package is in the ZIP..."
+          unzip -l backend-deployment.zip | grep "cors" || (echo "ERROR: cors package not found in ZIP" && exit 1)
 
       # Upload the ZIP as a workflow artifact to be consumed by the deploy job
       - name: Upload artifact
