@@ -40,6 +40,16 @@ jobs:
           npm ci --omit=dev
           test -f dist/index.js || (echo "dist/index.js missing" && exit 1)
 
+      # Ensure 'cors' installed (force if missing)
+      - name: Ensure 'cors' installed (force if missing)
+        working-directory: server
+        run: |
+          if [ ! -f node_modules/cors/package.json ]; then
+            echo "cors missing → installing..."
+            npm i cors@^2.8.5 --no-save
+          fi
+          test -f node_modules/cors/package.json
+
       # Ensure runtime deps exist after --omit=dev (catch 'cors'/'express' missing early)
       - name: Verify runtime deps (express/cors)
         working-directory: server
@@ -89,6 +99,11 @@ jobs:
           # Verify no Oryx artifacts in ZIP
           echo "Verifying no Oryx artifacts in ZIP..."
           unzip -l backend-deployment.zip | grep -E "(oryx-manifest|node_modules\.tar\.gz|\.deployment)" && (echo "ERROR: Oryx artifacts found in ZIP" && exit 1) || echo "OK: No Oryx artifacts in ZIP"
+
+      # Verify 'cors' included in ZIP
+      - name: Verify 'cors' included in ZIP
+        run: |
+          unzip -l backend-deployment.zip | grep -q "node_modules/cors/package.json" || (echo "❌ cors not in ZIP"; exit 1)
 
       # Upload the ZIP as a workflow artifact to be consumed by the deploy job
       - name: Upload artifact
@@ -184,6 +199,15 @@ jobs:
           slot-name: production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
           package: backend-deployment.zip
+
+      # Verify 'cors' exists on server (post-deploy)
+      - name: Verify 'cors' exists on server (post-deploy)
+        if: success()
+        run: |
+          echo "Checking for /home/site/wwwroot/node_modules/cors on Kudu..."
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+            -H "Content-Type: application/json" \
+            -d '{"command":"ls -lah /home/site/wwwroot/node_modules/cors || ls -lah /home/site/wwwroot/_del_node_modules/cors || (echo cors-not-found && exit 2)","dir":"/"}'
 
       # Basic health check (adjust route if your server exposes a different probe)
       - name: Health check
