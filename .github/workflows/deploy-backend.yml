@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
 
+# Prevent parallel deploys that can cause 409/502 conflicts
 concurrency:
   group: smarttask-ai-backend
   cancel-in-progress: true
@@ -18,8 +19,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # Checkout repository
       - uses: actions/checkout@v4
 
+      # Use Node 20 and enable npm cache scoped to server
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -27,6 +30,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: server/package-lock.json
 
+      # Build backend: clean install -> tsc build -> prune dev deps -> verify dist entry
       - name: Build server
         working-directory: server
         run: |
@@ -36,28 +40,39 @@ jobs:
           npm ci --omit=dev
           test -f dist/index.js || (echo "dist/index.js missing" && exit 1)
 
+      # Ensure runtime deps exist after --omit=dev (catch 'cors'/'express' missing early)
       - name: Verify runtime deps (express/cors)
         working-directory: server
         run: |
           node -e "try{require('express');require('cors');console.log('OK runtime deps');}catch(e){console.error('Missing runtime dependency (move it from devDependencies to dependencies):', e?.message||e); process.exit(1);}"
 
+      # Double-check that clerkRoutes.js exists in the emitted dist
       - name: Verify dist artifacts exist
         run: |
           ls -lah server/dist || true
           ls -lah server/dist/routes || true
           node -e "const fs=require('fs');process.exit(fs.existsSync('server/dist/routes/clerkRoutes.js')?0:(console.error('missing dist/routes/clerkRoutes.js'),1));"
 
+      # Create a lean ZIP for Run-From-Package:
+      # - exclude Oryx manifest to prevent Oryx from running on the server
+      # - exclude heavy frontend-only deps (next/@next) and build-time typescript
+      # - exclude obvious caches/bins/tests/docs to shrink package size
       - name: Create ZIP package (exclude Oryx & heavy frontend-only deps)
         run: |
           cd server
           # Ensure no Oryx artifacts exist before zipping
           rm -f oryx-manifest.toml node_modules.tar.gz .deployment
           zip -r ../backend-deployment.zip dist node_modules package.json package-lock.json \
-            -x "oryx-manifest.toml" "node_modules/next/**" "node_modules/@next/**" "node_modules/typescript/**" "node_modules.tar.gz" "node_modules/.cache/**" "node_modules/.bin/**" "node_modules/*/test/**" "node_modules/*/tests/**" "node_modules/*/docs/**" "node_modules/*/examples/**" ".deployment"
+            -x "oryx-manifest.toml" \
+               "node_modules/next/**" "node_modules/@next/**" "node_modules/typescript/**" \
+               "node_modules.tar.gz" "node_modules/.cache/**" "node_modules/.bin/**" \
+               "node_modules/*/test/**" "node_modules/*/tests/**" "node_modules/*/docs/**" "node_modules/*/examples/**" \
+               ".deployment"
           cd ..
           ls -la backend-deployment.zip
           echo "ZIP size:" && du -h backend-deployment.zip
 
+      # Upload the ZIP as a workflow artifact to be consumed by the deploy job
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -69,16 +84,20 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
+      # Download the ZIP to repository root so the deploy step can find it
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
           name: backend-zip
           path: .
+
+      # Sanity check: ensure the ZIP is present
       - name: Verify downloaded package
         run: |
           ls -la
           test -f backend-deployment.zip || (echo "backend-deployment.zip missing after download" && exit 1)
 
+      # Light warm-up ping to the app; not a fix-all, just reduces cold starts
       - name: Warm up App Service
         run: |
           for i in 1 2 3; do
@@ -87,40 +106,60 @@ jobs:
             sleep $((5 * i))
           done
 
+      # Extract Kudu (SCM) credentials from the Publish Profile (Bash-only, no Python)
+      - name: Extract Kudu credentials from publish profile (Bash-only)
+        env:
+          PUBLISH_PROFILE_XML: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
+        run: |
+          printf "%s" "$PUBLISH_PROFILE_XML" > publish-profile.xml
+          export KUDU_USER="$(perl -0777 -ne 'if(/<publishProfile[^>]*publishMethod="(?:MSDeploy|ZipDeploy)"[^>]*userName="([^"]+)"/s){print $1; exit}' publish-profile.xml)"
+          export KUDU_PASS="$(perl -0777 -ne 'if(/<publishProfile[^>]*publishMethod="(?:MSDeploy|ZipDeploy)"[^>]*userPWD="([^"]+)"/s){print $1; exit}' publish-profile.xml)"
+          rm -f publish-profile.xml
+          {
+            echo "KUDU_USER=$KUDU_USER"
+            echo "KUDU_PASS=$KUDU_PASS"
+          } >> "$GITHUB_ENV"
+
+      # Attempt to clean old Oryx leftovers in wwwroot (safe even if nothing to delete)
+      # NOTE: Kudu SCM host is *.scm.azurewebsites.net (no region suffix)
       - name: Clean up Azure App Service (if possible)
         run: |
           echo "Attempting to clean up old deployment artifacts..."
-          curl -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.israelcentral-01.azurewebsites.net/api/command" \
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
             -H "Content-Type: application/json" \
-            -d '{"command": "rm -rf /home/site/wwwroot/.deployment /home/site/wwwroot/oryx-manifest.toml /home/site/wwwroot/node_modules.tar.gz /home/site/wwwroot/.npm /home/site/wwwroot/.cache /home/site/wwwroot/_del_node_modules /home/site/wwwroot/node_modules", "dir": "/home/site/wwwroot"}' \
-            --user "${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}" || echo "Cleanup failed, continuing..."
+            -d '{"command":"rm -rf /home/site/wwwroot/.deployment /home/site/wwwroot/oryx-manifest.toml /home/site/wwwroot/node_modules.tar.gz /home/site/wwwroot/.npm /home/site/wwwroot/.cache /home/site/wwwroot/_del_node_modules /home/site/wwwroot/node_modules","dir":"/home/site/wwwroot"}' \
+            || echo "Cleanup failed, continuing..."
           echo "Cleanup completed, waiting for Azure to process..."
           sleep 10
 
+      # First deploy attempt (OneDeploy). Allow failure to enable a quick retry.
       - name: Deploy to Azure Web App (attempt 1)
         uses: azure/webapps-deploy@v3
         continue-on-error: true
         with:
           app-name: SMARTTASK-AI
-          package: backend-deployment.zip
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
           slot-name: production
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
+          package: backend-deployment.zip
 
+      # Backoff before retry only if the first attempt failed
       - name: Backoff before retry if needed
         if: failure()
         run: |
           echo "First deploy attempt failed; sleeping before retry..."
           sleep 30
 
+      # Second deploy attempt
       - name: Deploy to Azure Web App (attempt 2)
         if: failure()
         uses: azure/webapps-deploy@v3
         with:
           app-name: SMARTTASK-AI
-          package: backend-deployment.zip
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
           slot-name: production
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
+          package: backend-deployment.zip
 
+      # Basic health check (adjust route if your server exposes a different probe)
       - name: Health check
         run: |
           sleep 30
