@@ -36,18 +36,25 @@ jobs:
           npm ci --omit=dev
           test -f dist/index.js || (echo "dist/index.js missing" && exit 1)
 
+      - name: Verify runtime deps (express/cors)
+        working-directory: server
+        run: |
+          node -e "try{require('express');require('cors');console.log('OK runtime deps');}catch(e){console.error('Missing runtime dependency (move it from devDependencies to dependencies):', e?.message||e); process.exit(1);}"
+
       - name: Verify dist artifacts exist
         run: |
           ls -lah server/dist || true
           ls -lah server/dist/routes || true
           node -e "const fs=require('fs');process.exit(fs.existsSync('server/dist/routes/clerkRoutes.js')?0:(console.error('missing dist/routes/clerkRoutes.js'),1));"
 
-      - name: Create ZIP package
+      - name: Create ZIP package (exclude Oryx & heavy frontend-only deps)
         run: |
           cd server
-          zip -r ../backend-deployment.zip dist node_modules package.json package-lock.json
+          zip -r ../backend-deployment.zip dist node_modules package.json package-lock.json \
+            -x "oryx-manifest.toml" "node_modules/next/**" "node_modules/@next/**" "node_modules/typescript/**" "node_modules.tar.gz"
           cd ..
           ls -la backend-deployment.zip
+          echo "ZIP size:" && du -h backend-deployment.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
