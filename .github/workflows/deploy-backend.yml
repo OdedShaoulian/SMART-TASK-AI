@@ -65,6 +65,8 @@ jobs:
           cd server
           # Ensure no Oryx artifacts exist before zipping
           rm -f oryx-manifest.toml node_modules.tar.gz .deployment
+          echo "Removed Oryx artifacts, current directory contents:"
+          ls -la
           
           # Verify cors is in node_modules before zipping
           echo "Verifying cors package exists in node_modules..."
@@ -83,6 +85,10 @@ jobs:
           # Verify cors is in the ZIP
           echo "Verifying cors package is in the ZIP..."
           unzip -l backend-deployment.zip | grep "cors" || (echo "ERROR: cors package not found in ZIP" && exit 1)
+          
+          # Verify no Oryx artifacts in ZIP
+          echo "Verifying no Oryx artifacts in ZIP..."
+          unzip -l backend-deployment.zip | grep -E "(oryx-manifest|node_modules\.tar\.gz|\.deployment)" && (echo "ERROR: Oryx artifacts found in ZIP" && exit 1) || echo "OK: No Oryx artifacts in ZIP"
 
       # Upload the ZIP as a workflow artifact to be consumed by the deploy job
       - name: Upload artifact
@@ -141,8 +147,16 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"command":"rm -rf /home/site/wwwroot/.deployment /home/site/wwwroot/oryx-manifest.toml /home/site/wwwroot/node_modules.tar.gz /home/site/wwwroot/.npm /home/site/wwwroot/.cache /home/site/wwwroot/_del_node_modules /home/site/wwwroot/node_modules","dir":"/home/site/wwwroot"}' \
             || echo "Cleanup failed, continuing..."
+          
+          # Verify cleanup worked
+          echo "Verifying cleanup..."
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+            -H "Content-Type: application/json" \
+            -d '{"command":"ls -la /home/site/wwwroot","dir":"/home/site/wwwroot"}' \
+            || echo "Verification failed"
+          
           echo "Cleanup completed, waiting for Azure to process..."
-          sleep 10
+          sleep 15
 
       # First deploy attempt (OneDeploy). Allow failure to enable a quick retry.
       - name: Deploy to Azure Web App (attempt 1)
