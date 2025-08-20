@@ -62,7 +62,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: client/package-lock.json
 
-      # --- Install dependencies ---
+      # --- Install dependencies (runner) ---
       - name: Install dependencies
         working-directory: ./client
         run: npm ci
@@ -90,7 +90,7 @@ jobs:
           VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
 
-      # --- Build and Deploy to Azure Static Web Apps ---
+      # --- Build and Deploy to Azure Static Web Apps (source build inside Oryx) ---
       - name: Build and Deploy
         uses: Azure/static-web-apps-deploy@v1
         with:
@@ -100,14 +100,15 @@ jobs:
           app_location: "./client"
           api_location: ""
           output_location: "dist"
-          app_build_command: "npm ci && npx vite build"
+          # Ensure devDependencies (vite) are installed inside Oryx env and then build
+          app_build_command: "npm ci --include=dev && npm run build"
           deployment_environment: production
-
         env:
           VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
-          NODE_ENV: production
           MODE: production
+          # Critical: install devDependencies during Oryx build
+          NPM_CONFIG_PRODUCTION: "false"
 
       # --- Success notification ---
       - name: Notify deployment success
