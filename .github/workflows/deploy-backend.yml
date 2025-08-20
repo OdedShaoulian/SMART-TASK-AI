@@ -87,7 +87,7 @@ jobs:
 
           # Verify inside the tarball (no pipe → no Broken pipe)
           echo "Verifying cors exists inside node_modules.tar.gz..."
-          tar -tzf node_modules.tar.gz cors/package.json >/dev/null 2>&1 \
+          tar -tzf node_modules.tar.gz | grep -q "cors/package.json" \
             || { echo "ERROR: cors not found inside node_modules.tar.gz"; exit 1; }
 
           # Add a tiny startup script that extracts node_modules if needed
@@ -120,7 +120,7 @@ jobs:
           # Deep-verify: check 'cors' inside the tarball embedded in the ZIP
           echo "Verifying cors exists inside the embedded tarball..."
           unzip -p backend-deployment.zip node_modules.tar.gz > /tmp/node_modules_embedded.tgz
-          tar -tzf /tmp/node_modules_embedded.tgz cors/package.json >/dev/null 2>&1 \
+          tar -tzf /tmp/node_modules_embedded.tgz | grep -q "cors/package.json" \
             || { echo "ERROR: cors not found inside embedded node_modules.tar.gz"; exit 1; }
           rm -f /tmp/node_modules_embedded.tgz
 
@@ -137,7 +137,7 @@ jobs:
       - name: Verify 'cors' included in tarball (inside ZIP)
         run: |
           unzip -p backend-deployment.zip node_modules.tar.gz > node_modules.tar.gz
-          tar -tzf node_modules.tar.gz cors/package.json >/dev/null 2>&1 || (echo "❌ cors not in node_modules.tar.gz"; exit 1)
+          tar -tzf node_modules.tar.gz | grep -q "cors/package.json" || (echo "❌ cors not in node_modules.tar.gz"; exit 1)
           rm -f node_modules.tar.gz
 
       # Upload the ZIP as a workflow artifact to be consumed by the deploy job
