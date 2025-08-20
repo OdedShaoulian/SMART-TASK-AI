@@ -55,6 +55,36 @@ jobs:
           
           # Create deployment ZIP
           zip -r deployment.zip . -x "node_modules/.cache/*" "*.log" ".git/*"
+          
+          # Debug: Show what we created
+          echo "=== DEPLOYMENT PACKAGE DEBUG ==="
+          echo "Current directory: $(pwd)"
+          echo "Files in current directory:"
+          ls -la
+          echo "ZIP file details:"
+          ls -lah deployment.zip
+          echo "ZIP contents:"
+          unzip -l deployment.zip | head -20
+          echo "Startup script contents:"
+          cat startup.sh
+          echo "Package.json contents:"
+          cat package.json
+          echo "Dist directory contents:"
+          ls -la dist/
+
+      - name: Pre-deployment debug
+        run: |
+          echo "=== PRE-DEPLOYMENT DEBUG ==="
+          echo "Repository root contents:"
+          ls -la
+          echo "Server directory contents:"
+          ls -la server/
+          echo "ZIP file exists:"
+          test -f server/deployment.zip && echo "✅ ZIP file found" || echo "❌ ZIP file missing"
+          echo "ZIP file size:"
+          ls -lah server/deployment.zip
+          echo "ZIP file integrity:"
+          unzip -t server/deployment.zip || echo "❌ ZIP file is corrupted"
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
@@ -63,6 +93,15 @@ jobs:
           slot-name: production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
           package: server/deployment.zip
+
+      - name: Post-deployment debug
+        if: always()
+        run: |
+          echo "=== POST-DEPLOYMENT DEBUG ==="
+          echo "Deployment step completed with status: ${{ job.status }}"
+          echo "Current timestamp: $(date)"
+          echo "Testing basic connectivity to Azure App Service..."
+          curl -I --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/ || echo "⚠️ App Service not responding"
 
       - name: Wait for deployment
         run: sleep 30
