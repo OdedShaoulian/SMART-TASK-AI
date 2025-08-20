@@ -33,6 +33,10 @@ jobs:
         working-directory: server
         run: npm ci
 
+      - name: Generate Prisma client
+        working-directory: server
+        run: npx prisma generate
+
       - name: Build application
         working-directory: server
         run: npm run build
@@ -44,17 +48,24 @@ jobs:
       - name: Create deployment package
         working-directory: server
         run: |
-          # Create a simple startup script
+          # Create a simple startup script that handles ES modules
           cat > startup.sh << 'EOF'
           #!/bin/bash
           cd "$(dirname "$0")"
           echo "Starting application..."
-          node dist/index.js
+          echo "Node version: $(node --version)"
+          echo "Current directory: $(pwd)"
+          echo "Files in current directory:"
+          ls -la
+          echo "Dist directory contents:"
+          ls -la dist/ || echo "Dist directory not found"
+          echo "Starting with ES modules..."
+          node --experimental-specifier-resolution=node dist/index.js
           EOF
           chmod +x startup.sh
           
-          # Create deployment ZIP
-          zip -r deployment.zip . -x "node_modules/.cache/*" "*.log" ".git/*"
+          # Create deployment ZIP with all necessary files
+          zip -r deployment.zip . -x "node_modules/.cache/*" "*.log" ".git/*" "src/*" "tests/*" "*.test.js" "*.spec.js"
           
           # Debug: Show what we created
           echo "=== DEPLOYMENT PACKAGE DEBUG ==="
