@@ -1,4 +1,4 @@
-name: Deploy Backend (ZIP + Publish Profile)
+name: Deploy Backend to Azure
 
 on:
   push:
@@ -10,24 +10,18 @@ on:
 permissions:
   contents: read
 
-# Prevent parallel deploys that can cause 409/502 conflicts
+# Prevent parallel deployments
 concurrency:
-  group: smarttask-ai-backend
+  group: backend-deployment
   cancel-in-progress: true
 
-# Environment variables for Azure URLs
-env:
-  AZURE_APP_URL: https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net
-  AZURE_SCM_URL: https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net
-
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
-      # Checkout repository
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      # Use Node 20 and enable npm cache scoped to server
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -35,387 +29,56 @@ jobs:
           cache: 'npm'
           cache-dependency-path: server/package-lock.json
 
-      # Build backend: clean install -> tsc build -> prune dev deps -> verify dist entry
-      - name: Build server
+      - name: Install dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Build application
+        working-directory: server
+        run: npm run build
+
+      - name: Install production dependencies
+        working-directory: server
+        run: npm ci --omit=dev
+
+      - name: Create deployment package
         working-directory: server
         run: |
-          set -e
-          npm ci
-          npm run build
-          npm ci --omit=dev
-          test -f dist/index.js || (echo "dist/index.js missing" && exit 1)
-
-      # Ensure 'cors' installed (force if missing)
-      - name: Ensure 'cors' installed (force if missing)
-        working-directory: server
-        run: |
-          if [ ! -f node_modules/cors/package.json ]; then
-            echo "cors missing → installing..."
-            npm i cors@^2.8.5 --no-save
-          fi
-          test -f node_modules/cors/package.json
-
-      # Ensure runtime deps exist after --omit=dev (catch 'cors'/'express' missing early)
-      - name: Verify runtime deps (express/cors)
-        working-directory: server
-        run: |
-          echo "Checking runtime dependencies..."
-          ls -la node_modules/cors || echo "WARNING: cors not found in node_modules"
-          ls -la node_modules/express || echo "WARNING: express not found in node_modules"
-          node -e "try{require('express');require('cors');console.log('OK runtime deps');}catch(e){console.error('Missing runtime dependency (move it from devDependencies to dependencies):', e?.message||e); process.exit(1);}"
-
-      # Double-check that clerkRoutes.js exists in the emitted dist
-      - name: Verify dist artifacts exist
-        run: |
-          ls -lah server/dist || true
-          ls -lah server/dist/routes || true
-          node -e "const fs=require('fs');process.exit(fs.existsSync('server/dist/routes/clerkRoutes.js')?0:(console.error('missing dist/routes/clerkRoutes.js'),1));"
-
-      # Create a lean ZIP for Run-From-Package
-      - name: Create ZIP package (tarball node_modules for Azure startup)
-        run: |
-          set -e
-          cd server
-
-          # Clean any Oryx markers (do NOT touch node_modules)
-          rm -f oryx-manifest.toml .deployment
-          echo "Removed Oryx artifacts, current directory contents:"
-          ls -la
-
-          # Sanity: cors must exist before tar
-          echo "Verifying cors package exists in node_modules..."
-          test -f node_modules/cors/package.json || { echo "ERROR: cors package missing before tar"; exit 1; }
-
-          # Create tarball of node_modules
-          echo "Creating node_modules.tar.gz..."
-          tar -C node_modules -czf node_modules.tar.gz .
-
-          # Verify inside the tarball (no pipe → no Broken pipe)
-          echo "Verifying cors exists inside node_modules.tar.gz..."
-          tar -tzf node_modules.tar.gz | grep -q "cors/package.json" \
-            || { echo "ERROR: cors not found inside node_modules.tar.gz"; exit 1; }
-
-          # Add an optimized startup script that extracts node_modules if needed
-          cat > startup.sh <<'SH'
-          #!/usr/bin/env bash
-          set -e
+          # Create a simple startup script
+          cat > startup.sh << 'EOF'
+          #!/bin/bash
           cd "$(dirname "$0")"
+          echo "Starting application..."
+          node dist/index.js
+          EOF
+          chmod +x startup.sh
           
-          echo "[startup] Starting application deployment..."
-          
-          # Extract node_modules if needed
-          if [ ! -d "./node_modules" ] && [ -f "./node_modules.tar.gz" ]; then
-            echo "[startup] Extracting node_modules.tar.gz..."
-            tar -xzf node_modules.tar.gz -C .
-            echo "[startup] node_modules extraction completed"
-          else
-            echo "[startup] node_modules already exists or tarball not found"
-          fi
-          
-          # Verify critical dependencies (optimized check)
-          echo "[startup] Verifying critical dependencies..."
-          for dep in express cors; do
-            if [ ! -f "./node_modules/$dep/package.json" ]; then
-              echo "[startup] ERROR: $dep not found in node_modules"
-              exit 1
+          # Create deployment ZIP
+          zip -r ../deployment.zip . -x "node_modules/.cache/*" "*.log" ".git/*"
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: SMARTTASK-AI
+          slot-name: production
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
+          package: server/deployment.zip
+
+      - name: Wait for deployment
+        run: sleep 30
+
+      - name: Health check
+        run: |
+          echo "Testing application health..."
+          for i in {1..5}; do
+            echo "Attempt $i/5"
+            if curl -f -s --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/health; then
+              echo "✅ Application is healthy"
+              exit 0
+            else
+              echo "⚠️ Health check failed, retrying in 10 seconds..."
+              sleep 10
             fi
           done
-          
-          # Verify dist exists
-          if [ ! -f "./dist/index.js" ]; then
-            echo "[startup] ERROR: dist/index.js not found"
-            exit 1
-          fi
-          
-          echo "[startup] All dependencies verified, starting application..."
-          # Start the application
-          exec node dist/index.js
-          SH
-          chmod +x startup.sh
-
-          # Build deployment ZIP with dist + package.json + lock + tarball + startup
-          zip -r ../backend-deployment.zip dist package.json package-lock.json node_modules.tar.gz startup.sh \
-            -x "oryx-manifest.toml" ".deployment"
-
-          cd ..
-          ls -la backend-deployment.zip
-          echo "ZIP size:" && du -h backend-deployment.zip
-
-          # Verify the tarball is present in the ZIP (don't search for 'cors' here)
-          echo "Verifying node_modules.tar.gz is present in the ZIP..."
-          unzip -l backend-deployment.zip | grep -q "node_modules.tar.gz" \
-            || { echo "ERROR: node_modules.tar.gz missing from ZIP"; exit 1; }
-
-          # Deep-verify: check 'cors' inside the tarball embedded in the ZIP
-          echo "Verifying cors exists inside the embedded tarball..."
-          unzip -p backend-deployment.zip node_modules.tar.gz > /tmp/node_modules_embedded.tgz
-          tar -tzf /tmp/node_modules_embedded.tgz | grep -q "cors/package.json" \
-            || { echo "ERROR: cors not found inside embedded node_modules.tar.gz"; exit 1; }
-          rm -f /tmp/node_modules_embedded.tgz
-
-          # Verify no Oryx artifacts in ZIP (ALLOW node_modules.tar.gz)
-          echo "Verifying no Oryx artifacts in ZIP..."
-          if unzip -l backend-deployment.zip | grep -E "(oryx-manifest\.toml|\.deployment)"; then
-            echo "ERROR: Oryx artifacts found in ZIP"
-            exit 1
-          else
-            echo "OK: No Oryx artifacts in ZIP"
-          fi
-
-      # Upload the ZIP as a workflow artifact to be consumed by the deploy job
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-zip
-          path: backend-deployment.zip
-          if-no-files-found: error
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      # Download the ZIP to repository root so the deploy step can find it
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: backend-zip
-          path: .
-
-      # Sanity check: ensure the ZIP is present
-      - name: Verify downloaded package
-        run: |
-          ls -la
-          test -f backend-deployment.zip || (echo "backend-deployment.zip missing after download" && exit 1)
-
-      # Light warm-up ping to the SCM; not a fix-all, just reduces cold starts
-      - name: Warm up SCM
-        run: |
-          for i in 1 2 3; do
-            echo "SCM warmup attempt $i"
-            curl -sS -I --max-time 10 ${{ env.AZURE_SCM_URL }}/ || true
-            sleep $((5 * i))
-          done
-
-      # Note: Azure App Service configuration is handled via the publish profile
-      # The startup command and app settings can be configured in the Azure portal
-      # or via Azure CLI if needed, but are not required for basic deployment
-
-      # Extract Kudu (SCM) credentials from the Publish Profile (Bash-only, no Python)
-      - name: Extract Kudu credentials from publish profile (Bash-only)
-        env:
-          PUBLISH_PROFILE_XML: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
-        run: |
-          printf "%s" "$PUBLISH_PROFILE_XML" > publish-profile.xml
-          export KUDU_USER="$(perl -0777 -ne 'if(/<publishProfile[^>]*publishMethod="(?:MSDeploy|ZipDeploy)"[^>]*userName="([^"]+)"/s){print $1; exit}' publish-profile.xml)"
-          export KUDU_PASS="$(perl -0777 -ne 'if(/<publishProfile[^>]*publishMethod="(?:MSDeploy|ZipDeploy)"[^>]*userPWD="([^"]+)"/s){print $1; exit}' publish-profile.xml)"
-          rm -f publish-profile.xml
-          {
-            echo "KUDU_USER=$KUDU_USER"
-            echo "KUDU_PASS=$KUDU_PASS"
-          } >> "$GITHUB_ENV"
-
-      # Attempt to clean old Oryx leftovers in wwwroot (safe even if nothing to delete)
-      - name: Clean up Azure App Service (if possible)
-        run: |
-          echo "Attempting to clean up old deployment artifacts..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-            -H "Content-Type: application/json" \
-            -d '{"command":"rm -rf /home/site/wwwroot/.deployment /home/site/wwwroot/oryx-manifest.toml /home/site/wwwroot/.npm /home/site/wwwroot/.cache","dir":"/home/site/wwwroot"}' \
-            || echo "Cleanup failed, continuing..."
-
-          # Verify cleanup worked
-          echo "Verifying cleanup..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-            -H "Content-Type: application/json" \
-            -d '{"command":"ls -la /home/site/wwwroot","dir":"/home/site/wwwroot"}' \
-            || echo "Verification failed"
-
-          echo "Cleanup completed, waiting for Azure to process..."
-          sleep 15
-
-      # Pre-deployment diagnostics and validation
-      - name: Pre-deployment diagnostics
-        run: |
-          echo "=== PRE-DEPLOYMENT DIAGNOSTICS ==="
-          echo "1. Checking ZIP file integrity..."
-          ls -lah backend-deployment.zip
-          unzip -t backend-deployment.zip || { echo "❌ ZIP file is corrupted"; exit 1; }
-          
-          echo "2. Verifying ZIP contents..."
-          unzip -l backend-deployment.zip | head -20
-          
-          echo "3. Checking Azure App Service status..."
-          curl -sS -I --max-time 10 ${{ env.AZURE_APP_URL }}/ || echo "⚠️ App Service not responding (may be normal during deployment)"
-          
-          echo "4. Checking SCM/Kudu availability..."
-          curl -sS -I --max-time 10 ${{ env.AZURE_SCM_URL }}/ || echo "⚠️ SCM not responding"
-          
-          echo "5. Validating package structure..."
-          unzip -q backend-deployment.zip -d /tmp/package-check
-          ls -la /tmp/package-check/
-          test -f /tmp/package-check/dist/index.js || { echo "❌ dist/index.js missing from package"; exit 1; }
-          test -f /tmp/package-check/package.json || { echo "❌ package.json missing from package"; exit 1; }
-          test -f /tmp/package-check/node_modules.tar.gz || { echo "❌ node_modules.tar.gz missing from package"; exit 1; }
-          rm -rf /tmp/package-check
-          echo "✅ Package structure validation passed"
-
-      # First deploy attempt (OneDeploy). Allow failure to enable a quick retry.
-      - name: Deploy to Azure Web App (attempt 1)
-        id: deploy1
-        uses: azure/webapps-deploy@v3
-        continue-on-error: true
-        with:
-          app-name: SMARTTASK-AI
-          slot-name: production
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
-          package: backend-deployment.zip
-
-      # Backoff before retry only if the first attempt failed
-      - name: Backoff before retry if needed
-        if: steps.deploy1.outcome == 'failure'
-        run: |
-          echo "=== DEPLOYMENT FAILURE DIAGNOSTICS ==="
-          echo "First deploy attempt failed; collecting diagnostics..."
-          
-          echo "1. Checking Azure App Service logs via Kudu..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-            -H "Content-Type: application/json" \
-            -d '{"command":"tail -50 /home/LogFiles/kudu/trace/*.log 2>/dev/null || echo No Kudu logs found","dir":"/"}' || echo "Could not fetch Kudu logs"
-          
-          echo "2. Checking application logs..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-            -H "Content-Type: application/json" \
-            -d '{"command":"tail -50 /home/LogFiles/Application/*.log 2>/dev/null || echo No application logs found","dir":"/"}' || echo "Could not fetch application logs"
-          
-          echo "3. Checking wwwroot contents..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-            -H "Content-Type: application/json" \
-            -d '{"command":"ls -la /home/site/wwwroot/","dir":"/"}' || echo "Could not check wwwroot"
-          
-          echo "4. Checking Azure App Service status..."
-          curl -sS -I --max-time 10 ${{ env.AZURE_APP_URL }}/ || echo "App Service not responding"
-          
-          echo "5. Sleeping before retry..."
-          sleep 30
-
-      # Second deploy attempt
-      - name: Deploy to Azure Web App (attempt 2)
-        id: deploy2
-        if: steps.deploy1.outcome == 'failure'
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: SMARTTASK-AI
-          slot-name: production
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
-          package: backend-deployment.zip
-
-      # Post-deployment diagnostics (regardless of success/failure)
-      - name: Post-deployment diagnostics
-        if: always()
-        run: |
-          echo "=== POST-DEPLOYMENT DIAGNOSTICS ==="
-          
-          echo "1. Checking deployment status..."
-          if [ "${{ steps.deploy1.outcome }}" = "failure" ] && [ "${{ steps.deploy2.outcome }}" = "failure" ]; then
-            echo "❌ Both deployment attempts failed"
-            echo "2. Collecting comprehensive failure diagnostics..."
-            
-            echo "3. Checking Azure App Service configuration..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-              -H "Content-Type: application/json" \
-              -d '{"command":"env | grep -E \"(WEBSITE_|SCM_|ENABLE_|NODE_)\" | sort","dir":"/"}' || echo "Could not check environment variables"
-            
-            echo "4. Checking process status..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-              -H "Content-Type: application/json" \
-              -d '{"command":"ps aux | grep -E \"(node|npm|startup)\"","dir":"/"}' || echo "Could not check processes"
-            
-            echo "5. Checking disk space..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-              -H "Content-Type: application/json" \
-              -d '{"command":"df -h","dir":"/"}' || echo "Could not check disk space"
-            
-            echo "6. Checking memory usage..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-              -H "Content-Type: application/json" \
-              -d '{"command":"free -h","dir":"/"}' || echo "Could not check memory"
-            
-            echo "7. Checking startup script permissions..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-              -H "Content-Type: application/json" \
-              -d '{"command":"ls -la /home/site/wwwroot/startup.sh 2>/dev/null || echo startup.sh not found","dir":"/"}' || echo "Could not check startup script"
-            
-            echo "8. Testing startup script manually..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-              -H "Content-Type: application/json" \
-              -d '{"command":"cd /home/site/wwwroot && bash -n startup.sh && echo startup.sh syntax OK || echo startup.sh syntax error","dir":"/"}' || echo "Could not test startup script"
-            
-            echo "9. Checking for common 502 error patterns..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-              -H "Content-Type: application/json" \
-              -d '{"command":"grep -r \"502\|Bad Gateway\|startup\|node_modules\" /home/LogFiles/ 2>/dev/null | tail -10 || echo No relevant log entries found","dir":"/"}' || echo "Could not search logs"
-            
-            echo "❌ DEPLOYMENT FAILED - Check the diagnostics above for root cause"
-            exit 1
-          else
-            echo "✅ Deployment appears successful"
-          fi
-
-      # Verify 'cors' exists on server (post-deploy)
-      - name: Verify 'cors' exists on server (post-deploy)
-        if: success()
-        run: |
-          echo "=== POST-DEPLOYMENT VERIFICATION ==="
-          echo "Checking for /home/site/wwwroot/node_modules/cors on Kudu..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-            -H "Content-Type: application/json" \
-            -d '{"command":"ls -lah /home/site/wwwroot/node_modules/cors || ls -lah /home/site/wwwroot/_del_node_modules/cors || ls -lah /node_modules/cors || (echo cors-not-found && exit 2)","dir":"/"}'
-          
-          echo "Checking application startup status..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-            -H "Content-Type: application/json" \
-            -d '{"command":"ps aux | grep node | grep -v grep || echo No node processes found","dir":"/"}' || echo "Could not check processes"
-
-      # List node_modules on server (post-deploy)
-      - name: List node_modules on server (post-deploy)
-        if: success()
-        run: |
-          echo "Listing /home/site/wwwroot/node_modules (top 200 entries max):"
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-            -H "Content-Type: application/json" \
-            -d '{"command":"ls -lah /home/site/wwwroot/node_modules | head -200","dir":"/"}'
-
-      # Enhanced health check with detailed diagnostics
-      - name: Health check
-        timeout-minutes: 5
-        run: |
-          echo "=== HEALTH CHECK DIAGNOSTICS ==="
-          echo "Waiting for application to start..."
-          sleep 30
-          
-          echo "1. Testing basic connectivity..."
-          curl -sS -I --max-time 10 ${{ env.AZURE_APP_URL }}/ || echo "⚠️ Basic connectivity failed"
-          
-          echo "2. Testing health endpoint..."
-          curl -sS -f --max-time 10 ${{ env.AZURE_APP_URL }}/health || { 
-            echo "❌ Health check failed"
-            echo "3. Collecting health check diagnostics..."
-            
-            echo "4. Checking if app is responding on any endpoint..."
-            curl -sS --max-time 10 ${{ env.AZURE_APP_URL }}/ || echo "No response from any endpoint"
-            
-            echo "5. Checking recent application logs..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-              -H "Content-Type: application/json" \
-              -d '{"command":"tail -20 /home/LogFiles/Application/*.log 2>/dev/null || echo No recent application logs","dir":"/"}' || echo "Could not fetch recent logs"
-            
-            echo "6. Checking if startup script executed..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
-              -H "Content-Type: application/json" \
-              -d '{"command":"ls -la /home/site/wwwroot/node_modules/ 2>/dev/null | head -5 || echo node_modules not found","dir":"/"}' || echo "Could not check node_modules"
-            
-            echo "❌ HEALTH CHECK FAILED - Application is not responding properly"
-            exit 1
-          }
-          
-          echo "✅ Health check passed - Application is responding correctly"
+          echo "❌ Health check failed after 5 attempts"
+          exit 1
