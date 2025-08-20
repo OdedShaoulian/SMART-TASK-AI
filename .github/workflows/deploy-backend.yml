@@ -196,6 +196,13 @@ jobs:
             WEBSITE_NODE_DEFAULT_VERSION=20.0.0 \
             NODE_ENV=production \
             || echo "Warning: Could not set app settings (may need Azure CLI login)"
+          
+          echo "Setting startup command via Azure CLI..."
+          az webapp config set \
+            --name SMARTTASK-AI \
+            --resource-group smarttask-ai-rg \
+            --startup-file "bash startup.sh" \
+            || echo "Warning: Could not set startup command (may need Azure CLI login)"
 
       # Extract Kudu (SCM) credentials from the Publish Profile (Bash-only, no Python)
       - name: Extract Kudu credentials from publish profile (Bash-only)
@@ -267,7 +274,6 @@ jobs:
           slot-name: production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
           package: backend-deployment.zip
-          startup-command: "node dist/index.js"
 
       # Backoff before retry only if the first attempt failed
       - name: Backoff before retry if needed
@@ -307,7 +313,6 @@ jobs:
           slot-name: production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
           package: backend-deployment.zip
-          startup-command: "node dist/index.js"
 
       # Post-deployment diagnostics (regardless of success/failure)
       - name: Post-deployment diagnostics
