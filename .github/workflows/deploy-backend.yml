@@ -15,6 +15,11 @@ concurrency:
   group: smarttask-ai-backend
   cancel-in-progress: true
 
+# Environment variables for Azure URLs
+env:
+  AZURE_APP_URL: https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net
+  AZURE_SCM_URL: https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -90,7 +95,7 @@ jobs:
           tar -tzf node_modules.tar.gz | grep -q "cors/package.json" \
             || { echo "ERROR: cors not found inside node_modules.tar.gz"; exit 1; }
 
-          # Add a robust startup script that extracts node_modules if needed
+          # Add an optimized startup script that extracts node_modules if needed
           cat > startup.sh <<'SH'
           #!/usr/bin/env bash
           set -e
@@ -107,16 +112,14 @@ jobs:
             echo "[startup] node_modules already exists or tarball not found"
           fi
           
-          # Verify critical dependencies
+          # Verify critical dependencies (optimized check)
           echo "[startup] Verifying critical dependencies..."
-          if [ ! -f "./node_modules/express/package.json" ]; then
-            echo "[startup] ERROR: express not found in node_modules"
-            exit 1
-          fi
-          if [ ! -f "./node_modules/cors/package.json" ]; then
-            echo "[startup] ERROR: cors not found in node_modules"
-            exit 1
-          fi
+          for dep in express cors; do
+            if [ ! -f "./node_modules/$dep/package.json" ]; then
+              echo "[startup] ERROR: $dep not found in node_modules"
+              exit 1
+            fi
+          done
           
           # Verify dist exists
           if [ ! -f "./dist/index.js" ]; then
@@ -159,13 +162,6 @@ jobs:
             echo "OK: No Oryx artifacts in ZIP"
           fi
 
-      # (Optional) Keep if you want an extra check after the previous step
-      - name: Verify 'cors' included in tarball (inside ZIP)
-        run: |
-          unzip -p backend-deployment.zip node_modules.tar.gz > node_modules.tar.gz
-          tar -tzf node_modules.tar.gz | grep -q "cors/package.json" || (echo "❌ cors not in node_modules.tar.gz"; exit 1)
-          rm -f node_modules.tar.gz
-
       # Upload the ZIP as a workflow artifact to be consumed by the deploy job
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -196,58 +192,13 @@ jobs:
         run: |
           for i in 1 2 3; do
             echo "SCM warmup attempt $i"
-            curl -sS -I --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/ || true
+            curl -sS -I --max-time 10 ${{ env.AZURE_SCM_URL }}/ || true
             sleep $((5 * i))
           done
 
-      # Login to Azure CLI (optional, for app settings configuration)
-      - name: Login to Azure CLI
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-        continue-on-error: true
-
-      # Configure Azure App Service settings to prevent 502 errors
-      - name: Configure Azure App Service settings
-        run: |
-          echo "Configuring Azure App Service settings to prevent 502 errors..."
-          # These settings help prevent 502 Bad Gateway errors
-          az webapp config appsettings set \
-            --name SMARTTASK-AI \
-            --resource-group smarttask-ai-rg \
-            --settings \
-            WEBSITE_RUN_FROM_PACKAGE=1 \
-            SCM_DO_BUILD_DURING_DEPLOYMENT=0 \
-            ENABLE_ORYX_BUILD=false \
-            WEBSITE_NODE_DEFAULT_VERSION=20.0.0 \
-            NODE_ENV=production \
-            WEBSITE_WEBSOCKETS_ENABLED=0 \
-            WEBSITE_HTTPLOGGING_RETENTION_DAYS=7 \
-            WEBSITE_ENABLE_APP_SERVICE_STORAGE=false \
-            || echo "Warning: Could not set app settings (may need Azure CLI login)"
-          
-          echo "Setting startup command via Azure CLI..."
-          az webapp config set \
-            --name SMARTTASK-AI \
-            --resource-group smarttask-ai-rg \
-            --startup-file "bash startup.sh" \
-            || echo "Warning: Could not set startup command (may need Azure CLI login)"
-          
-          echo "Setting additional configuration to prevent 502 errors..."
-          az webapp config set \
-            --name SMARTTASK-AI \
-            --resource-group smarttask-ai-rg \
-            --generic-configurations '{"applicationStacks": {"node": {"nodeVersion": "20.0.0"}}}' \
-            || echo "Warning: Could not set generic configurations"
-          
-          echo "Restarting Azure App Service to apply configuration changes..."
-          az webapp restart \
-            --name SMARTTASK-AI \
-            --resource-group smarttask-ai-rg \
-            || echo "Warning: Could not restart app service"
-          
-          echo "Waiting for app service to fully restart..."
-          sleep 30
+      # Note: Azure App Service configuration is handled via the publish profile
+      # The startup command and app settings can be configured in the Azure portal
+      # or via Azure CLI if needed, but are not required for basic deployment
 
       # Extract Kudu (SCM) credentials from the Publish Profile (Bash-only, no Python)
       - name: Extract Kudu credentials from publish profile (Bash-only)
@@ -264,18 +215,17 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # Attempt to clean old Oryx leftovers in wwwroot (safe even if nothing to delete)
-      # NOTE: Kudu SCM host includes region suffix
       - name: Clean up Azure App Service (if possible)
         run: |
           echo "Attempting to clean up old deployment artifacts..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
             -H "Content-Type: application/json" \
             -d '{"command":"rm -rf /home/site/wwwroot/.deployment /home/site/wwwroot/oryx-manifest.toml /home/site/wwwroot/.npm /home/site/wwwroot/.cache","dir":"/home/site/wwwroot"}' \
             || echo "Cleanup failed, continuing..."
 
           # Verify cleanup worked
           echo "Verifying cleanup..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
             -H "Content-Type: application/json" \
             -d '{"command":"ls -la /home/site/wwwroot","dir":"/home/site/wwwroot"}' \
             || echo "Verification failed"
@@ -294,11 +244,11 @@ jobs:
           echo "2. Verifying ZIP contents..."
           unzip -l backend-deployment.zip | head -20
           
-          echo "3. Checking Azure App Service status (with region suffix)..."
-          curl -sS -I --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/ || echo "⚠️ App Service not responding (may be normal during deployment)"
+          echo "3. Checking Azure App Service status..."
+          curl -sS -I --max-time 10 ${{ env.AZURE_APP_URL }}/ || echo "⚠️ App Service not responding (may be normal during deployment)"
           
-          echo "4. Checking SCM/Kudu availability (with region suffix)..."
-          curl -sS -I --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/ || echo "⚠️ SCM not responding"
+          echo "4. Checking SCM/Kudu availability..."
+          curl -sS -I --max-time 10 ${{ env.AZURE_SCM_URL }}/ || echo "⚠️ SCM not responding"
           
           echo "5. Validating package structure..."
           unzip -q backend-deployment.zip -d /tmp/package-check
@@ -328,22 +278,22 @@ jobs:
           echo "First deploy attempt failed; collecting diagnostics..."
           
           echo "1. Checking Azure App Service logs via Kudu..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
             -H "Content-Type: application/json" \
             -d '{"command":"tail -50 /home/LogFiles/kudu/trace/*.log 2>/dev/null || echo No Kudu logs found","dir":"/"}' || echo "Could not fetch Kudu logs"
           
           echo "2. Checking application logs..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
             -H "Content-Type: application/json" \
             -d '{"command":"tail -50 /home/LogFiles/Application/*.log 2>/dev/null || echo No application logs found","dir":"/"}' || echo "Could not fetch application logs"
           
           echo "3. Checking wwwroot contents..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
             -H "Content-Type: application/json" \
             -d '{"command":"ls -la /home/site/wwwroot/","dir":"/"}' || echo "Could not check wwwroot"
           
           echo "4. Checking Azure App Service status..."
-          curl -sS -I --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/ || echo "App Service not responding"
+          curl -sS -I --max-time 10 ${{ env.AZURE_APP_URL }}/ || echo "App Service not responding"
           
           echo "5. Sleeping before retry..."
           sleep 30
@@ -371,37 +321,37 @@ jobs:
             echo "2. Collecting comprehensive failure diagnostics..."
             
             echo "3. Checking Azure App Service configuration..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
               -H "Content-Type: application/json" \
               -d '{"command":"env | grep -E \"(WEBSITE_|SCM_|ENABLE_|NODE_)\" | sort","dir":"/"}' || echo "Could not check environment variables"
             
             echo "4. Checking process status..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
               -H "Content-Type: application/json" \
               -d '{"command":"ps aux | grep -E \"(node|npm|startup)\"","dir":"/"}' || echo "Could not check processes"
             
             echo "5. Checking disk space..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
               -H "Content-Type: application/json" \
               -d '{"command":"df -h","dir":"/"}' || echo "Could not check disk space"
             
             echo "6. Checking memory usage..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
               -H "Content-Type: application/json" \
               -d '{"command":"free -h","dir":"/"}' || echo "Could not check memory"
             
             echo "7. Checking startup script permissions..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
               -H "Content-Type: application/json" \
               -d '{"command":"ls -la /home/site/wwwroot/startup.sh 2>/dev/null || echo startup.sh not found","dir":"/"}' || echo "Could not check startup script"
             
             echo "8. Testing startup script manually..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
               -H "Content-Type: application/json" \
               -d '{"command":"cd /home/site/wwwroot && bash -n startup.sh && echo startup.sh syntax OK || echo startup.sh syntax error","dir":"/"}' || echo "Could not test startup script"
             
             echo "9. Checking for common 502 error patterns..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
               -H "Content-Type: application/json" \
               -d '{"command":"grep -r \"502\|Bad Gateway\|startup\|node_modules\" /home/LogFiles/ 2>/dev/null | tail -10 || echo No relevant log entries found","dir":"/"}' || echo "Could not search logs"
             
@@ -417,12 +367,12 @@ jobs:
         run: |
           echo "=== POST-DEPLOYMENT VERIFICATION ==="
           echo "Checking for /home/site/wwwroot/node_modules/cors on Kudu..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
             -H "Content-Type: application/json" \
             -d '{"command":"ls -lah /home/site/wwwroot/node_modules/cors || ls -lah /home/site/wwwroot/_del_node_modules/cors || ls -lah /node_modules/cors || (echo cors-not-found && exit 2)","dir":"/"}'
           
           echo "Checking application startup status..."
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
             -H "Content-Type: application/json" \
             -d '{"command":"ps aux | grep node | grep -v grep || echo No node processes found","dir":"/"}' || echo "Could not check processes"
 
@@ -431,35 +381,36 @@ jobs:
         if: success()
         run: |
           echo "Listing /home/site/wwwroot/node_modules (top 200 entries max):"
-          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
             -H "Content-Type: application/json" \
             -d '{"command":"ls -lah /home/site/wwwroot/node_modules | head -200","dir":"/"}'
 
       # Enhanced health check with detailed diagnostics
       - name: Health check
+        timeout-minutes: 5
         run: |
           echo "=== HEALTH CHECK DIAGNOSTICS ==="
           echo "Waiting for application to start..."
           sleep 30
           
           echo "1. Testing basic connectivity..."
-          curl -sS -I --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/ || echo "⚠️ Basic connectivity failed"
+          curl -sS -I --max-time 10 ${{ env.AZURE_APP_URL }}/ || echo "⚠️ Basic connectivity failed"
           
           echo "2. Testing health endpoint..."
-          curl -sS -f --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/health || { 
+          curl -sS -f --max-time 10 ${{ env.AZURE_APP_URL }}/health || { 
             echo "❌ Health check failed"
             echo "3. Collecting health check diagnostics..."
             
             echo "4. Checking if app is responding on any endpoint..."
-            curl -sS --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/ || echo "No response from any endpoint"
+            curl -sS --max-time 10 ${{ env.AZURE_APP_URL }}/ || echo "No response from any endpoint"
             
             echo "5. Checking recent application logs..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
               -H "Content-Type: application/json" \
               -d '{"command":"tail -20 /home/LogFiles/Application/*.log 2>/dev/null || echo No recent application logs","dir":"/"}' || echo "Could not fetch recent logs"
             
             echo "6. Checking if startup script executed..."
-            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.scm.azurewebsites.net/api/command" \
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "${{ env.AZURE_SCM_URL }}/api/command" \
               -H "Content-Type: application/json" \
               -d '{"command":"ls -la /home/site/wwwroot/node_modules/ 2>/dev/null | head -5 || echo node_modules not found","dir":"/"}' || echo "Could not check node_modules"
             
