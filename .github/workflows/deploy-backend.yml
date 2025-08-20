@@ -174,6 +174,29 @@ jobs:
             sleep $((5 * i))
           done
 
+      # Login to Azure CLI (optional, for app settings configuration)
+      - name: Login to Azure CLI
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+        continue-on-error: true
+
+      # Configure Azure App Service settings to prevent 502 errors
+      - name: Configure Azure App Service settings
+        run: |
+          echo "Configuring Azure App Service settings to prevent 502 errors..."
+          # These settings help prevent 502 Bad Gateway errors
+          az webapp config appsettings set \
+            --name SMARTTASK-AI \
+            --resource-group smarttask-ai-rg \
+            --settings \
+            WEBSITE_RUN_FROM_PACKAGE=1 \
+            SCM_DO_BUILD_DURING_DEPLOYMENT=0 \
+            ENABLE_ORYX_BUILD=false \
+            WEBSITE_NODE_DEFAULT_VERSION=20.0.0 \
+            NODE_ENV=production \
+            || echo "Warning: Could not set app settings (may need Azure CLI login)"
+
       # Extract Kudu (SCM) credentials from the Publish Profile (Bash-only, no Python)
       - name: Extract Kudu credentials from publish profile (Bash-only)
         env:
@@ -208,6 +231,32 @@ jobs:
           echo "Cleanup completed, waiting for Azure to process..."
           sleep 15
 
+      # Pre-deployment diagnostics and validation
+      - name: Pre-deployment diagnostics
+        run: |
+          echo "=== PRE-DEPLOYMENT DIAGNOSTICS ==="
+          echo "1. Checking ZIP file integrity..."
+          ls -lah backend-deployment.zip
+          unzip -t backend-deployment.zip || { echo "❌ ZIP file is corrupted"; exit 1; }
+          
+          echo "2. Verifying ZIP contents..."
+          unzip -l backend-deployment.zip | head -20
+          
+          echo "3. Checking Azure App Service status..."
+          curl -sS -I --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.azurewebsites.net/ || echo "⚠️ App Service not responding (may be normal during deployment)"
+          
+          echo "4. Checking SCM/Kudu availability..."
+          curl -sS -I --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/ || echo "⚠️ SCM not responding"
+          
+          echo "5. Validating package structure..."
+          unzip -q backend-deployment.zip -d /tmp/package-check
+          ls -la /tmp/package-check/
+          test -f /tmp/package-check/dist/index.js || { echo "❌ dist/index.js missing from package"; exit 1; }
+          test -f /tmp/package-check/package.json || { echo "❌ package.json missing from package"; exit 1; }
+          test -f /tmp/package-check/node_modules.tar.gz || { echo "❌ node_modules.tar.gz missing from package"; exit 1; }
+          rm -rf /tmp/package-check
+          echo "✅ Package structure validation passed"
+
       # First deploy attempt (OneDeploy). Allow failure to enable a quick retry.
       - name: Deploy to Azure Web App (attempt 1)
         id: deploy1
@@ -218,16 +267,39 @@ jobs:
           slot-name: production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
           package: backend-deployment.zip
+          startup-command: "node dist/index.js"
 
       # Backoff before retry only if the first attempt failed
       - name: Backoff before retry if needed
         if: steps.deploy1.outcome == 'failure'
         run: |
-          echo "First deploy attempt failed; sleeping before retry..."
+          echo "=== DEPLOYMENT FAILURE DIAGNOSTICS ==="
+          echo "First deploy attempt failed; collecting diagnostics..."
+          
+          echo "1. Checking Azure App Service logs via Kudu..."
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+            -H "Content-Type: application/json" \
+            -d '{"command":"tail -50 /home/LogFiles/kudu/trace/*.log 2>/dev/null || echo No Kudu logs found","dir":"/"}' || echo "Could not fetch Kudu logs"
+          
+          echo "2. Checking application logs..."
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+            -H "Content-Type: application/json" \
+            -d '{"command":"tail -50 /home/LogFiles/Application/*.log 2>/dev/null || echo No application logs found","dir":"/"}' || echo "Could not fetch application logs"
+          
+          echo "3. Checking wwwroot contents..."
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+            -H "Content-Type: application/json" \
+            -d '{"command":"ls -la /home/site/wwwroot/","dir":"/"}' || echo "Could not check wwwroot"
+          
+          echo "4. Checking Azure App Service status..."
+          curl -sS -I --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.azurewebsites.net/ || echo "App Service not responding"
+          
+          echo "5. Sleeping before retry..."
           sleep 30
 
       # Second deploy attempt
       - name: Deploy to Azure Web App (attempt 2)
+        id: deploy2
         if: steps.deploy1.outcome == 'failure'
         uses: azure/webapps-deploy@v3
         with:
@@ -235,15 +307,74 @@ jobs:
           slot-name: production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3648A7C097704B079741BF447BA6A912 }}
           package: backend-deployment.zip
+          startup-command: "node dist/index.js"
+
+      # Post-deployment diagnostics (regardless of success/failure)
+      - name: Post-deployment diagnostics
+        if: always()
+        run: |
+          echo "=== POST-DEPLOYMENT DIAGNOSTICS ==="
+          
+          echo "1. Checking deployment status..."
+          if [ "${{ steps.deploy1.outcome }}" = "failure" ] && [ "${{ steps.deploy2.outcome }}" = "failure" ]; then
+            echo "❌ Both deployment attempts failed"
+            echo "2. Collecting comprehensive failure diagnostics..."
+            
+            echo "3. Checking Azure App Service configuration..."
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+              -H "Content-Type: application/json" \
+              -d '{"command":"env | grep -E \"(WEBSITE_|SCM_|ENABLE_|NODE_)\" | sort","dir":"/"}' || echo "Could not check environment variables"
+            
+            echo "4. Checking process status..."
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+              -H "Content-Type: application/json" \
+              -d '{"command":"ps aux | grep -E \"(node|npm|startup)\"","dir":"/"}' || echo "Could not check processes"
+            
+            echo "5. Checking disk space..."
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+              -H "Content-Type: application/json" \
+              -d '{"command":"df -h","dir":"/"}' || echo "Could not check disk space"
+            
+            echo "6. Checking memory usage..."
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+              -H "Content-Type: application/json" \
+              -d '{"command":"free -h","dir":"/"}' || echo "Could not check memory"
+            
+            echo "7. Checking startup script permissions..."
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+              -H "Content-Type: application/json" \
+              -d '{"command":"ls -la /home/site/wwwroot/startup.sh 2>/dev/null || echo startup.sh not found","dir":"/"}' || echo "Could not check startup script"
+            
+            echo "8. Testing startup script manually..."
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+              -H "Content-Type: application/json" \
+              -d '{"command":"cd /home/site/wwwroot && bash -n startup.sh && echo startup.sh syntax OK || echo startup.sh syntax error","dir":"/"}' || echo "Could not test startup script"
+            
+            echo "9. Checking for common 502 error patterns..."
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+              -H "Content-Type: application/json" \
+              -d '{"command":"grep -r \"502\|Bad Gateway\|startup\|node_modules\" /home/LogFiles/ 2>/dev/null | tail -10 || echo No relevant log entries found","dir":"/"}' || echo "Could not search logs"
+            
+            echo "❌ DEPLOYMENT FAILED - Check the diagnostics above for root cause"
+            exit 1
+          else
+            echo "✅ Deployment appears successful"
+          fi
 
       # Verify 'cors' exists on server (post-deploy)
       - name: Verify 'cors' exists on server (post-deploy)
         if: success()
         run: |
+          echo "=== POST-DEPLOYMENT VERIFICATION ==="
           echo "Checking for /home/site/wwwroot/node_modules/cors on Kudu..."
           curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
             -H "Content-Type: application/json" \
             -d '{"command":"ls -lah /home/site/wwwroot/node_modules/cors || ls -lah /home/site/wwwroot/_del_node_modules/cors || ls -lah /node_modules/cors || (echo cors-not-found && exit 2)","dir":"/"}'
+          
+          echo "Checking application startup status..."
+          curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+            -H "Content-Type: application/json" \
+            -d '{"command":"ps aux | grep node | grep -v grep || echo No node processes found","dir":"/"}' || echo "Could not check processes"
 
       # List node_modules on server (post-deploy)
       - name: List node_modules on server (post-deploy)
@@ -254,8 +385,36 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"command":"ls -lah /home/site/wwwroot/node_modules | head -200","dir":"/"}'
 
-      # Basic health check (adjust route if your server exposes a different probe)
+      # Enhanced health check with detailed diagnostics
       - name: Health check
         run: |
+          echo "=== HEALTH CHECK DIAGNOSTICS ==="
+          echo "Waiting for application to start..."
           sleep 30
-          curl -f https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/health || exit 1
+          
+          echo "1. Testing basic connectivity..."
+          curl -sS -I --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/ || echo "⚠️ Basic connectivity failed"
+          
+          echo "2. Testing health endpoint..."
+          curl -sS -f --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/health || { 
+            echo "❌ Health check failed"
+            echo "3. Collecting health check diagnostics..."
+            
+            echo "4. Checking if app is responding on any endpoint..."
+            curl -sS --max-time 10 https://smarttask-ai-f6gzb6hgcrgngxhq.israelcentral-01.azurewebsites.net/ || echo "No response from any endpoint"
+            
+            echo "5. Checking recent application logs..."
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+              -H "Content-Type: application/json" \
+              -d '{"command":"tail -20 /home/LogFiles/Application/*.log 2>/dev/null || echo No recent application logs","dir":"/"}' || echo "Could not fetch recent logs"
+            
+            echo "6. Checking if startup script executed..."
+            curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
+              -H "Content-Type: application/json" \
+              -d '{"command":"ls -la /home/site/wwwroot/node_modules/ 2>/dev/null | head -5 || echo node_modules not found","dir":"/"}' || echo "Could not check node_modules"
+            
+            echo "❌ HEALTH CHECK FAILED - Application is not responding properly"
+            exit 1
+          }
+          
+          echo "✅ Health check passed - Application is responding correctly"
