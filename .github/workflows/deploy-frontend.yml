@@ -66,6 +66,29 @@ jobs:
       - name: Install dependencies
         working-directory: ./client
         run: npm ci
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+
+      # --- Validate environment variables ---
+      - name: Validate environment variables
+        working-directory: ./client
+        run: |
+          echo "=== ENVIRONMENT VARIABLE VALIDATION ==="
+          echo "VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:0:20}..."
+          echo "VITE_API_URL: $VITE_API_URL"
+          if [ -z "$VITE_CLERK_PUBLISHABLE_KEY" ]; then
+            echo "❌ ERROR: VITE_CLERK_PUBLISHABLE_KEY is not set!"
+            exit 1
+          fi
+          if [ -z "$VITE_API_URL" ]; then
+            echo "❌ ERROR: VITE_API_URL is not set!"
+            exit 1
+          fi
+          echo "✅ Environment variables are properly set"
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
 
       # --- Build and Deploy to Azure Static Web Apps ---
       - name: Build and Deploy
@@ -82,6 +105,8 @@ jobs:
         env:
           VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          NODE_ENV: production
+          MODE: production
 
       # --- Success notification ---
       - name: Notify deployment success
