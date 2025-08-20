@@ -101,7 +101,7 @@ jobs:
           api_location: ""
           output_location: "dist"
           # Ensure devDependencies (vite) are installed inside Oryx env and then build
-          app_build_command: "npm ci --include=dev && npm run build"
+          app_build_command: "npm ci --include=dev && npm run build && echo '=== BUILD COMPLETED ===' && echo 'Checking environment variables:' && echo 'VITE_CLERK_PUBLISHABLE_KEY: $VITE_CLERK_PUBLISHABLE_KEY' && echo 'VITE_API_URL: $VITE_API_URL' && echo 'NODE_ENV: $NODE_ENV' && echo 'MODE: $MODE'"
           deployment_environment: production
         env:
           VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
