@@ -54,7 +54,7 @@ jobs:
           chmod +x startup.sh
           
           # Create deployment ZIP
-          zip -r ../deployment.zip . -x "node_modules/.cache/*" "*.log" ".git/*"
+          zip -r deployment.zip . -x "node_modules/.cache/*" "*.log" ".git/*"
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
