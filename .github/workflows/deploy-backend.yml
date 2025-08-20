@@ -66,50 +66,78 @@ jobs:
           ls -lah server/dist/routes || true
           node -e "const fs=require('fs');process.exit(fs.existsSync('server/dist/routes/clerkRoutes.js')?0:(console.error('missing dist/routes/clerkRoutes.js'),1));"
 
-      # Create a lean ZIP for Run-From-Package:
-      # - exclude Oryx manifest to prevent Oryx from running on the server
-      # - exclude heavy frontend-only deps (next/@next) and build-time typescript
-      # - exclude obvious caches/bins/tests/docs to shrink package size
+      # Create a lean ZIP for Run-From-Package
       - name: Create ZIP package (tarball node_modules for Azure startup)
         run: |
           set -e
           cd server
-          # Keep workspace clean from Oryx markers (do NOT touch node_modules itself)
+
+          # Clean any Oryx markers (do NOT touch node_modules)
           rm -f oryx-manifest.toml .deployment
           echo "Removed Oryx artifacts, current directory contents:"
           ls -la
-          
+
           # Sanity: cors must exist before tar
           echo "Verifying cors package exists in node_modules..."
-          test -f node_modules/cors/package.json || (echo "ERROR: cors package missing from node_modules before tar" && exit 1)
+          test -f node_modules/cors/package.json || { echo "ERROR: cors package missing before tar"; exit 1; }
 
-          echo "Creating node_modules.tar.gz (Azure startup extracts this to /node_modules)..."
+          # Create tarball of node_modules
+          echo "Creating node_modules.tar.gz..."
           tar -C node_modules -czf node_modules.tar.gz .
 
-          echo "Verify cors exists inside tarball (relaxed grep)…"
-          tar -tzf node_modules.tar.gz | tr -d '\r' | grep -q "cors/package.json" || (echo "ERROR: cors not found inside tarball" && exit 1)
+          # Verify inside the tarball (no pipe → no Broken pipe)
+          echo "Verifying cors exists inside node_modules.tar.gz..."
+          tar -tzf node_modules.tar.gz cors/package.json >/dev/null 2>&1 \
+            || { echo "ERROR: cors not found inside node_modules.tar.gz"; exit 1; }
 
-          # Build deployment ZIP with dist + manifests + tarball (NOT the node_modules directory)
-          zip -r ../backend-deployment.zip dist package.json package-lock.json node_modules.tar.gz \
+          # Add a tiny startup script that extracts node_modules if needed
+          cat > startup.sh <<'SH'
+          #!/usr/bin/env bash
+          set -e
+          cd "$(dirname "$0")"
+          if [ ! -d "./node_modules" ] && [ -f "./node_modules.tar.gz" ]; then
+            echo "[startup] Extracting node_modules.tar.gz..."
+            tar -xzf node_modules.tar.gz -C .
+          fi
+          # Adjust the entrypoint if your app filename differs:
+          node dist/index.js
+          SH
+          chmod +x startup.sh
+
+          # Build deployment ZIP with dist + package.json + lock + tarball + startup
+          zip -r ../backend-deployment.zip dist package.json package-lock.json node_modules.tar.gz startup.sh \
             -x "oryx-manifest.toml" ".deployment"
 
           cd ..
           ls -la backend-deployment.zip
           echo "ZIP size:" && du -h backend-deployment.zip
-          
-          # Verify cors is in the ZIP
-          echo "Verifying cors package is in the ZIP..."
-          unzip -l backend-deployment.zip | grep "cors" || (echo "ERROR: cors package not found in ZIP" && exit 1)
-          
-          # Verify no Oryx artifacts in ZIP
-          echo "Verifying no Oryx artifacts in ZIP..."
-          unzip -l backend-deployment.zip | grep -E "(oryx-manifest|node_modules\.tar\.gz|\.deployment)" && (echo "ERROR: Oryx artifacts found in ZIP" && exit 1) || echo "OK: No Oryx artifacts in ZIP"
 
-      # Verify 'cors' included in ZIP
+          # Verify the tarball is present in the ZIP (don't search for 'cors' here)
+          echo "Verifying node_modules.tar.gz is present in the ZIP..."
+          unzip -l backend-deployment.zip | grep -q "node_modules.tar.gz" \
+            || { echo "ERROR: node_modules.tar.gz missing from ZIP"; exit 1; }
+
+          # Deep-verify: check 'cors' inside the tarball embedded in the ZIP
+          echo "Verifying cors exists inside the embedded tarball..."
+          unzip -p backend-deployment.zip node_modules.tar.gz > /tmp/node_modules_embedded.tgz
+          tar -tzf /tmp/node_modules_embedded.tgz cors/package.json >/dev/null 2>&1 \
+            || { echo "ERROR: cors not found inside embedded node_modules.tar.gz"; exit 1; }
+          rm -f /tmp/node_modules_embedded.tgz
+
+          # Verify no Oryx artifacts in ZIP (ALLOW node_modules.tar.gz)
+          echo "Verifying no Oryx artifacts in ZIP..."
+          if unzip -l backend-deployment.zip | grep -E "(oryx-manifest\.toml|\.deployment)"; then
+            echo "ERROR: Oryx artifacts found in ZIP"
+            exit 1
+          else
+            echo "OK: No Oryx artifacts in ZIP"
+          fi
+
+      # (Optional) Keep if you want an extra check after the previous step
       - name: Verify 'cors' included in tarball (inside ZIP)
         run: |
           unzip -p backend-deployment.zip node_modules.tar.gz > node_modules.tar.gz
-          tar -tzf node_modules.tar.gz | tr -d '\r' | grep -q "cors/package.json" || (echo "❌ cors not in node_modules.tar.gz"; exit 1)
+          tar -tzf node_modules.tar.gz cors/package.json >/dev/null 2>&1 || (echo "❌ cors not in node_modules.tar.gz"; exit 1)
           rm -f node_modules.tar.gz
 
       # Upload the ZIP as a workflow artifact to be consumed by the deploy job
@@ -169,19 +197,20 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"command":"rm -rf /home/site/wwwroot/.deployment /home/site/wwwroot/oryx-manifest.toml /home/site/wwwroot/.npm /home/site/wwwroot/.cache","dir":"/home/site/wwwroot"}' \
             || echo "Cleanup failed, continuing..."
-          
+
           # Verify cleanup worked
           echo "Verifying cleanup..."
           curl -sS -u "$KUDU_USER:$KUDU_PASS" -X POST "https://smarttask-ai-f6gzb6hgcrgngxhq.scm.azurewebsites.net/api/command" \
             -H "Content-Type: application/json" \
             -d '{"command":"ls -la /home/site/wwwroot","dir":"/home/site/wwwroot"}' \
             || echo "Verification failed"
-          
+
           echo "Cleanup completed, waiting for Azure to process..."
           sleep 15
 
       # First deploy attempt (OneDeploy). Allow failure to enable a quick retry.
       - name: Deploy to Azure Web App (attempt 1)
+        id: deploy1
         uses: azure/webapps-deploy@v3
         continue-on-error: true
         with:
@@ -192,14 +221,14 @@ jobs:
 
       # Backoff before retry only if the first attempt failed
       - name: Backoff before retry if needed
-        if: failure()
+        if: steps.deploy1.outcome == 'failure'
         run: |
           echo "First deploy attempt failed; sleeping before retry..."
           sleep 30
 
       # Second deploy attempt
       - name: Deploy to Azure Web App (attempt 2)
-        if: failure()
+        if: steps.deploy1.outcome == 'failure'
         uses: azure/webapps-deploy@v3
         with:
           app-name: SMARTTASK-AI
